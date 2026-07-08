@@ -1,0 +1,99 @@
+[
+  {
+    "id": 1781652254692.3496,
+    "type": "hand",
+    "position": "N",
+    "operator": "AND",
+    "pointType": "hcp",
+    "hcp": {
+      "ranges": [
+        {
+          "min": 12,
+          "max": 14
+        },
+        {
+          "min": 18,
+          "max": 19
+        }
+      ]
+    },
+    "suits": {
+      "SPADES": {
+        "min": 0,
+        "max": 13
+      },
+      "HEARTS": {
+        "min": 0,
+        "max": 13
+      },
+      "DIAMONDS": {
+        "min": 0,
+        "max": 13
+      },
+      "CLUBS": {
+        "min": 0,
+        "max": 13
+      }
+    },
+    "distributions": ""
+  },
+  {
+    "id": 1781652254693.8435,
+    "type": "hand",
+    "position": "S",
+    "operator": "AND",
+    "pointType": "hcp",
+    "hcp": {
+      "min": 6,
+      "max": 40
+    },
+    "suits": {
+      "SPADES": {
+        "min": 0,
+        "max": 13
+      },
+      "HEARTS": {
+        "min": 0,
+        "max": 13
+      },
+      "DIAMONDS": {
+        "min": 0,
+        "max": 13
+      },
+      "CLUBS": {
+        "min": 0,
+        "max": 13
+      }
+    },
+    "distributions": ""
+  },
+  {
+    "id": 1781652273253.5647,
+    "type": "line",
+    "line": "NS",
+    "operator": "AND",
+    "pointType": "hcp",
+    "hcp": {
+      "min": 25,
+      "max": 40
+    },
+    "fits": {
+      "SPADES": {
+        "min": 0,
+        "max": 13
+      },
+      "HEARTS": {
+        "min": 0,
+        "max": 13
+      },
+      "DIAMONDS": {
+        "min": 0,
+        "max": 13
+      },
+      "CLUBS": {
+        "min": 0,
+        "max": 13
+      }
+    }
+  }
+]

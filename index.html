@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Donnes de Bridge</title>
+    <link rel="stylesheet" href="styles.css">
+    <!--
+        ===== STRUCTURE GÉNÉRALE =====
+        index.html est le point d'entrée. Il charge tous les scripts JS (generator.js, modal.js,
+        dds-controller.js, sequences.js) et définit la structure DOM statique :
+        
+        1. .theme-toggle : boutons theme + notation FR/EN (coin haut droit, position:fixed)
+        2. .container : contenu principal
+           - h1 : titre
+           - .panel (gris clair) : formulaire de génération (donneur, # donnes, rotation, etc.)
+           - #loadingPanel : barre de progression + bouton Annuler
+           - #resultsPanel : boutons globaux (Télécharger PBN/LIN, Calculer le double mort)
+           - #dealsContainer : cartes de donnes (rendues dynamiquement par renderDeals())
+        
+        3. Modales statiques :
+           - #handConstraintsModal : ajouter contraintes HCP (min/max)
+           - #distributionPresetModal : presets de distribution (cases à cocher)
+           - Autres modales si utiles (enchères, etc.)
+        
+        4. Scripts chargés en ordre strict (dépendances) :
+           - sequences.js (SEF_SEQUENCES, données brutes)
+           - generator.js (core logique, appelle sequences.js et modal.js)
+           - modal.js (UI contraintes)
+           - dds-lib.js (Emscripten libdds, gros)
+           - dds-controller.js (orchestre le calcul, dépend de dds-lib.js chargé)
+        
+        ===== ÉLEMENTS CLÉS DU FORMULAIRE =====
+        - #numDeals : nombre de donnes à générer
+        - #fixedDealer, #rotatingDealer : choix du donneur (unique ou rotatif)
+        - #randomizeLines : checkbox pivoter 180° aléatoirement
+        - #constraintsList : affichage dynamique des contraintes actives
+        
+        ===== AFFICHAGE DYNAMIQUE =====
+        #dealsContainer est réécrit complètement par renderDeals(). Contient 1..N div.deal-card,
+        chacune avec :
+        - deal-header : numéro, donneur, vulnérabilité, bouton télécharger
+        - mains N/E/S/W (notation EN ou FR selon cardNotation global)
+        - points HCP, points de distribution (calcul Losing Trick Count)
+        - dd-table-container : placeholder ou tableau double mort (si calculé)
+    -->
+<body>
+    <div class="theme-toggle">
+        <button class="theme-toggle-btn" onclick="toggleTheme()" title="Changer de thème">
+            <span id="themeIcon">🌙</span>
+        </button>
+        <button class="card-notation-btn" onclick="toggleCardNotation()" title="Notation des cartes : EN (AKQJT) / FR (ARDVX)">
+            <span id="cardNotationBtn">EN</span>
+        </button>
+    </div>
+    
+    <div class="container">
+        <h1>🎴 Générateur de Donnes de Bridge</h1>
+        
+        <div class="panel">
+            <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 25px;">
+                <div style="flex: 0 0 200px;">
+                    <label>Nombre de donnes à générer</label>
+                    <input type="number" id="numDeals" value="10" min="1" max="1000" style="width: 100%;">
+                </div>
+                
+                <div style="flex: 1;">
+                    <button class="btn btn-primary" onclick="openHandConstraintsModal()">+ Contraintes de main</button>
+                    <button class="btn btn-primary" onclick="openLineConstraintsModal()">+ Contraintes de ligne</button>
+                    <button class="btn btn-primary" onclick="openBiddingSequenceModal()">+ Séquence d'enchères</button>
+                    <button class="btn btn-download" onclick="exportConstraintsPreset()">💾 Exporter les contraintes</button>
+                    <button class="btn btn-download" onclick="document.getElementById('importPresetInput').click()">📂 Importer des contraintes</button>
+                    <input type="file" id="importPresetInput" accept=".json" style="display:none;" onchange="importConstraintsPreset(event)">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <div id="constraintList" class="constraint-list"></div>
+            </div>
+            
+			<div class="form-group">
+				<div class="dealer-options-wrapper">
+					<label style="margin: 0;">
+						<input type="checkbox" id="rotatingDealer" checked onchange="toggleDealerSelection()" style="width: auto; margin-right: 8px;">
+						Donneur rotatif
+					</label>
+					<div id="fixedDealerSection" style="display: none; margin-left: 20px;">
+						<label style="margin-bottom: 5px; font-size: 14px;">Donneur fixe :</label>
+						<select id="fixedDealer" class="select-compact" style="width: 150px;">
+							<option value="">-- Choisir --</option>
+							<option value="N">Nord</option>
+							<option value="E">Est</option>
+							<option value="S">Sud</option>
+							<option value="W">Ouest</option>
+						</select>
+					</div>
+				</div>
+			</div>
+
+			<div class="form-group" id="randomizationSection">
+				<label style="margin: 0;">
+					<input type="checkbox" id="randomizeLines" style="width: auto; margin-right: 8px;">
+					Rotation aléatoire 180° NS/EO (50% de chances)
+				</label>
+				<div class="info-text" style="margin-top: 5px;">
+					Active une rotation aléatoire des contraintes entre Nord-Sud et Est-Ouest pour varier les mains en position NS
+				</div>
+			</div>
+            
+            <div id="constraintSummary" style="display:none; border: 1px solid #3498db; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; font-size: 14px; line-height: 1.8;"></div>
+            
+            <button class="btn btn-success" style="width: auto; font-size:16px; padding:12px 24px;" onclick="generateDeals()">
+                🎲 Générer les donnes
+            </button>
+            <button class="btn btn-warning" style="width: auto; font-size:16px; padding:12px 24px;" onclick="addDeals()">
+                ➕ Ajouter des donnes
+            </button>
+        </div>
+        
+        <div id="resultsPanel" class="panel" style="display:none;">
+            <div class="header-actions">
+                <h2 id="resultsTitle">Donnes générées</h2>
+                <div>
+                    <button class="btn btn-primary" onclick="openStatsModal()">📊 Statistiques</button>
+                    <button class="btn btn-secondary" onclick="computeDoubleDummyForAllDeals()">🧮 Calculer le double mort</button>
+                    <button id="ddCancelBtn" class="btn btn-danger" style="display:none;" onclick="cancelDoubleDummyBatch()">⏹ Arrêter le calcul</button>
+                    <button class="btn btn-download" onclick="exportToPBN()">⬇ Télécharger PBN</button>
+                    <button class="btn btn-download" onclick="exportToLIN()">⬇ Télécharger LIN</button>
+                </div>
+            </div>
+            <div class="header-actions" id="dealFilterBar" style="margin-top: 8px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label for="dealSlamFilter" style="margin:0; font-weight:normal;">Filtrer :</label>
+                    <select id="dealSlamFilter" class="select-compact" onchange="applyDealFilter()" title="Nécessite le calcul du double mort (bouton ci-dessus)">
+                        <option value="all">Toutes les donnes</option>
+                        <option value="partial">Partielle uniquement (pas de manche possible)</option>
+                        <option value="game">Manche ou mieux (3SA, 4M, 5m)</option>
+                        <option value="slam12">Chelem (petit ou grand, 12+ levées)</option>
+                        <option value="slam13">Grand chelem uniquement (13 levées)</option>
+                    </select>
+                </div>
+                <span id="dealFilterCount" class="info-text" style="margin:0;"></span>
+            </div>
+            <div id="dealsContainer" class="deals-grid"></div>
+        </div>
+        
+        <div id="loadingPanel" class="panel loading" style="display:none;">
+            <div id="loadingContent">Génération en cours...</div>
+            <button id="cancelGenBtn" class="btn btn-danger" style="margin-top: 15px;" onclick="cancelGeneration()">⏹ Annuler la génération</button>
+        </div>
+    </div>
+    
+    <div id="modalsContainer">
+        <!-- Modal for Hand Constraints -->
+        <div id="handConstraintsModal" class="modal">
+            <div class="modal-content modal-content-wide">
+                <div class="modal-header">
+                    <h2 class="modal-title">Contraintes de main</h2>
+                    <button class="close-btn" onclick="cancelHandConstraintsModal()">&times;</button>
+                </div>
+                
+                <div class="hand-constraints-grid">
+                    <!-- Nord -->
+                    <div class="position-section">
+                        <div class="position-title">Nord</div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Type de points</div>
+                            <div style="display: flex; gap: 10px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="hand-n-pointType" value="hcp" checked style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="hand-n-pointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">🎯 Points</div>
+                            <input type="text" class="constraint-input" id="modal-n-hcp" placeholder="Ex: 12-15, 12+, 15- OU 12-14 OU 18+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Distribution</div>
+                            <input type="text" class="constraint-input" id="modal-n-dist" placeholder="Ex: 5431, 55xx, M54+, M5m4...">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol spades">♠</span> Piques</div>
+                            <input type="text" class="constraint-input" id="modal-n-spades" placeholder="Ex: 5 8, 5+, 5-, ou 5">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol hearts">♥</span> Cœurs</div>
+                            <input type="text" class="constraint-input" id="modal-n-hearts" placeholder="Ex: 3 5, 3+, 3-, ou 3">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol diamonds">♦</span> Carreaux</div>
+                            <input type="text" class="constraint-input" id="modal-n-diamonds" placeholder="Ex: 2 4, 2+, 2-, ou 2">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol clubs">♣</span> Trèfles</div>
+                            <input type="text" class="constraint-input" id="modal-n-clubs" placeholder="Ex: 0 3, 3-">
+                        </div>
+                    </div>
+                    
+                    <!-- Est -->
+                    <div class="position-section">
+                        <div class="position-title">Est</div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Type de points</div>
+                            <div style="display: flex; gap: 10px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="hand-e-pointType" value="hcp" checked style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="hand-e-pointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">🎯 Points</div>
+                            <input type="text" class="constraint-input" id="modal-e-hcp" placeholder="Ex: 12-15, 12+ OU 18-19">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Distribution</div>
+                            <input type="text" class="constraint-input" id="modal-e-dist" placeholder="Ex: 5431, M54+, M5m4...">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol spades">♠</span> Piques</div>
+                            <input type="text" class="constraint-input" id="modal-e-spades" placeholder="Ex: 5 8, 5+, 5-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol hearts">♥</span> Cœurs</div>
+                            <input type="text" class="constraint-input" id="modal-e-hearts" placeholder="Ex: 3 5, 3+, 3-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol diamonds">♦</span> Carreaux</div>
+                            <input type="text" class="constraint-input" id="modal-e-diamonds" placeholder="Ex: 2 4, 2+, 2-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol clubs">♣</span> Trèfles</div>
+                            <input type="text" class="constraint-input" id="modal-e-clubs" placeholder="Ex: 0 3, 3-">
+                        </div>
+                    </div>
+                    
+                    <!-- Sud -->
+                    <div class="position-section">
+                        <div class="position-title">Sud</div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Type de points</div>
+                            <div style="display: flex; gap: 10px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="hand-s-pointType" value="hcp" checked style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="hand-s-pointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">🎯 Points</div>
+                            <input type="text" class="constraint-input" id="modal-s-hcp" placeholder="Ex: 12-15, 12+ OU 18-19">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Distribution</div>
+                            <input type="text" class="constraint-input" id="modal-s-dist" placeholder="Ex: 5431, M54+, M5m4...">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol spades">♠</span> Piques</div>
+                            <input type="text" class="constraint-input" id="modal-s-spades" placeholder="Ex: 5 8, 5+, 5-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol hearts">♥</span> Cœurs</div>
+                            <input type="text" class="constraint-input" id="modal-s-hearts" placeholder="Ex: 3 5, 3+, 3-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol diamonds">♦</span> Carreaux</div>
+                            <input type="text" class="constraint-input" id="modal-s-diamonds" placeholder="Ex: 2 4, 2+, 2-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol clubs">♣</span> Trèfles</div>
+                            <input type="text" class="constraint-input" id="modal-s-clubs" placeholder="Ex: 0 3, 3-">
+                        </div>
+                    </div>
+                    
+                    <!-- Ouest -->
+                    <div class="position-section">
+                        <div class="position-title">Ouest</div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Type de points</div>
+                            <div style="display: flex; gap: 10px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="hand-w-pointType" value="hcp" checked style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="hand-w-pointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">🎯 Points</div>
+                            <input type="text" class="constraint-input" id="modal-w-hcp" placeholder="Ex: 12-15, 12+ OU 18-19">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Distribution</div>
+                            <input type="text" class="constraint-input" id="modal-w-dist" placeholder="Ex: 5431, M54+, M5m4...">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol spades">♠</span> Piques</div>
+                            <input type="text" class="constraint-input" id="modal-w-spades" placeholder="Ex: 5 8, 5+, 5-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol hearts">♥</span> Cœurs</div>
+                            <input type="text" class="constraint-input" id="modal-w-hearts" placeholder="Ex: 3 5, 3+, 3-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol diamonds">♦</span> Carreaux</div>
+                            <input type="text" class="constraint-input" id="modal-w-diamonds" placeholder="Ex: 2 4, 2+, 2-">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label"><span class="suit-symbol clubs">♣</span> Trèfles</div>
+                            <input type="text" class="constraint-input" id="modal-w-clubs" placeholder="Ex: 0 3, 3-">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="cancelHandConstraintsModal()">Annuler</button>
+                    <button class="btn btn-success" onclick="saveHandConstraints()">Ajouter les contraintes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Line Constraints -->
+        <div id="lineConstraintsModal" class="modal">
+            <div class="modal-content modal-content-wide" style="max-width: 1000px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">Contraintes de ligne</h2>
+                    <button class="close-btn" onclick="cancelLineConstraintsModal()">&times;</button>
+                </div>
+                
+                <div class="line-constraints-grid">
+                    <!-- Nord-Sud -->
+                    <div class="position-section" style="margin-bottom: 20px;">
+                        <div class="position-title">Ligne Nord-Sud</div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Type de points</div>
+                            <div style="display: flex; gap: 10px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="line-ns-pointType" value="hcp" checked style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="line-ns-pointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">🎯 Points totaux</div>
+                            <input type="text" class="constraint-input" id="line-ns-hcp" placeholder="Ex: 20-25, 20+, 25- OU 20-22 OU 26+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♠ Fit à Pique</div>
+                            <input type="text" class="constraint-input" id="line-ns-spades-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♥ Fit à Cœur</div>
+                            <input type="text" class="constraint-input" id="line-ns-hearts-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♦ Fit à Carreau</div>
+                            <input type="text" class="constraint-input" id="line-ns-diamonds-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♣ Fit à Trèfle</div>
+                            <input type="text" class="constraint-input" id="line-ns-clubs-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                    </div>
+                    
+                    <!-- Est-Ouest -->
+                    <div class="position-section">
+                        <div class="position-title">Ligne Est-Ouest</div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">📊 Type de points</div>
+                            <div style="display: flex; gap: 10px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="line-ew-pointType" value="hcp" checked style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="line-ew-pointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">🎯 Points totaux</div>
+                            <input type="text" class="constraint-input" id="line-ew-hcp" placeholder="Ex: 20-25, 20+, 25- OU 20-22 OU 26+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♠ Fit à Pique</div>
+                            <input type="text" class="constraint-input" id="line-ew-spades-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♥ Fit à Cœur</div>
+                            <input type="text" class="constraint-input" id="line-ew-hearts-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♦ Fit à Carreau</div>
+                            <input type="text" class="constraint-input" id="line-ew-diamonds-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                        <div class="constraint-input-group">
+                            <div class="constraint-input-label">♣ Fit à Trèfle</div>
+                            <input type="text" class="constraint-input" id="line-ew-clubs-fit" placeholder="Ex: 8 13, 8+">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="info-text" style="margin-top: 15px;">
+                        <strong>Exemples de formats :</strong><br>
+                        • "20-25" = entre 20 et 25<br>
+						• "20+" = minimum 20<br>
+						• "25- " = maximum 25 (noter l'espace après le tiret)<br>
+						• "20" = exactement 20<br>
+						• "12-14 OU 18+" = 12-14 OU 18 et plus<br>
+						• Laissez vide pour ignorer la contrainte
+                    </div>
+                
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="cancelLineConstraintsModal()">Annuler</button>
+                    <button class="btn btn-success" onclick="saveLineConstraints()">Ajouter les contraintes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Bidding Sequence -->
+        <div id="biddingSequenceModal" class="modal">
+            <div class="modal-content modal-content-wide" style="max-width: 1200px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">Séquence d'enchères</h2>
+                    <button class="close-btn" onclick="closeBiddingSequenceModal()">&times;</button>
+                </div>
+                
+                <div style="margin-bottom: 25px;">
+                    <div class="form-group">
+                        <label>Type de séquence</label>
+                        <div style="display: flex; gap: 20px;">
+                            <label style="margin: 0;">
+                                <input type="radio" name="seqType" value="2" checked onchange="updateBiddingForm()" style="width: auto; margin-right: 8px;">
+                                Séquence à 2 (même camp)
+                            </label>
+                            <label style="margin: 0;">
+                                <input type="radio" name="seqType" value="4" onchange="updateBiddingForm()" style="width: auto; margin-right: 8px;">
+                                Séquence à 4 (avec adversaires)
+                            </label>
+                        </div>
+                        <div class="info-text">Séq à 2: format "AA BB / CC" | Séq à 4: format "AA BB CC DD / EE"</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Camp ouvreur</label>
+                        <div style="display: flex; gap: 20px;">
+                            <label style="margin: 0;">
+                                <input type="radio" name="openerSide" value="NS" checked style="width: auto; margin-right: 8px;">
+                                Nord-Sud
+                            </label>
+                            <label style="margin: 0;">
+                                <input type="radio" name="openerSide" value="EW" style="width: auto; margin-right: 8px;">
+                                Est-Ouest
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Séquence d'enchères</label>
+                        <input type="text" id="biddingSequenceText" list="sefSequencesList" placeholder="Ex: 1P 2P / 4P ou 1C 1P 1SA 2T / 3SA" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px;">
+                        <datalist id="sefSequencesList"></datalist>
+                        <div class="info-text">Format: Enchères séparées par des espaces, "/" avant la dernière enchère</div>
+                    </div>
+                    
+                    <div class="bidding-roles-grid">
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4 style="margin-bottom: 10px; color: #2c3e50;">Contraintes Ouvreur</h4>
+                        <div style="margin-bottom: 10px;">
+                            <div style="font-size: 13px; font-weight: 600; margin-bottom: 5px;">📊 Type de points</div>
+                            <div style="display: flex; gap: 15px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="bidOpenerPointType" value="hcp" style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="bidOpenerPointType" value="hl" checked style="width: auto; margin-right: 4px;">HL</label>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div>
+                                <label style="font-size: 13px;">Points</label>
+                                <input type="text" id="bidOpenerHcp" placeholder="Ex: 12 20">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">Distribution (ex: "5431")</label>
+                                <input type="text" id="bidOpenerDist" placeholder="Ex: 5431, M54+, M5m4...">
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;">
+                            <div>
+                                <label style="font-size: 13px;">♠ Piques</label>
+                                <input type="text" id="bidOpenerSpades" placeholder="5+">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">♥ Cœurs</label>
+                                <input type="text" id="bidOpenerHearts" placeholder="">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">♦ Carreaux</label>
+                                <input type="text" id="bidOpenerDiamonds" placeholder="">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">♣ Trèfles</label>
+                                <input type="text" id="bidOpenerClubs" placeholder="">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4 style="margin-bottom: 10px; color: #2c3e50;">Contraintes Répondant</h4>
+                        <div style="margin-bottom: 10px;">
+                            <div style="font-size: 13px; font-weight: 600; margin-bottom: 5px;">📊 Type de points</div>
+                            <div style="display: flex; gap: 15px; font-size: 13px;">
+                                <label style="margin: 0;"><input type="radio" name="bidResponderPointType" value="hcp" style="width: auto; margin-right: 4px;">HCP</label>
+                                <label style="margin: 0;"><input type="radio" name="bidResponderPointType" value="hl" style="width: auto; margin-right: 4px;">HL</label>
+                                <label style="margin: 0;"><input type="radio" name="bidResponderPointType" value="hld" checked style="width: auto; margin-right: 4px;">HLD (avec fit)</label>
+                            </div>
+                            <div class="info-text" style="margin-top: 3px;">HLD = HL + courtes (singleton +2, doubleton +1, chicane +3)</div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div>
+                                <label style="font-size: 13px;">Points</label>
+                                <input type="text" id="bidResponderHcp" placeholder="Ex: 6 10">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">Distribution</label>
+                                <input type="text" id="bidResponderDist" placeholder="">
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;">
+                            <div>
+                                <label style="font-size: 13px;">♠ Piques</label>
+                                <input type="text" id="bidResponderSpades" placeholder="3+">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">♥ Cœurs</label>
+                                <input type="text" id="bidResponderHearts" placeholder="">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">♦ Carreaux</label>
+                                <input type="text" id="bidResponderDiamonds" placeholder="">
+                            </div>
+                            <div>
+                                <label style="font-size: 13px;">♣ Trèfles</label>
+                                <input type="text" id="bidResponderClubs" placeholder="">
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                    
+                    <div id="opponentConstraints" style="display: none;">
+                        <div class="bidding-roles-grid">
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <h4 style="margin-bottom: 10px; color: #856404;">Contraintes Adversaire 1</h4>
+                            <div style="margin-bottom: 10px;">
+                                <div style="font-size: 13px; font-weight: 600; margin-bottom: 5px;">📊 Type de points</div>
+                                <div style="display: flex; gap: 15px; font-size: 13px;">
+                                    <label style="margin: 0;"><input type="radio" name="bidOpp1PointType" value="hcp" style="width: auto; margin-right: 4px;">HCP</label>
+                                    <label style="margin: 0;"><input type="radio" name="bidOpp1PointType" value="hl" checked style="width: auto; margin-right: 4px;">HL</label>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div>
+                                    <label style="font-size: 13px;">Points</label>
+                                    <input type="text" id="bidOpp1Hcp" placeholder="Ex: 8 15">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">Distribution</label>
+                                    <input type="text" id="bidOpp1Dist" placeholder="">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;">
+                                <div>
+                                    <label style="font-size: 13px;">♠ Piques</label>
+                                    <input type="text" id="bidOpp1Spades" placeholder="5+">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">♥ Cœurs</label>
+                                    <input type="text" id="bidOpp1Hearts" placeholder="">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">♦ Carreaux</label>
+                                    <input type="text" id="bidOpp1Diamonds" placeholder="">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">♣ Trèfles</label>
+                                    <input type="text" id="bidOpp1Clubs" placeholder="">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <h4 style="margin-bottom: 10px; color: #856404;">Contraintes Adversaire 2</h4>
+                            <div style="margin-bottom: 10px;">
+                                <div style="font-size: 13px; font-weight: 600; margin-bottom: 5px;">📊 Type de points</div>
+                                <div style="display: flex; gap: 15px; font-size: 13px;">
+                                    <label style="margin: 0;"><input type="radio" name="bidOpp2PointType" value="hcp" style="width: auto; margin-right: 4px;">HCP</label>
+                                    <label style="margin: 0;"><input type="radio" name="bidOpp2PointType" value="hl" checked style="width: auto; margin-right: 4px;">HL</label>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div>
+                                    <label style="font-size: 13px;">Points</label>
+                                    <input type="text" id="bidOpp2Hcp" placeholder="Ex: 5 10">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">Distribution</label>
+                                    <input type="text" id="bidOpp2Dist" placeholder="">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;">
+                                <div>
+                                    <label style="font-size: 13px;">♠ Piques</label>
+                                    <input type="text" id="bidOpp2Spades" placeholder="">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">♥ Cœurs</label>
+                                    <input type="text" id="bidOpp2Hearts" placeholder="">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">♦ Carreaux</label>
+                                    <input type="text" id="bidOpp2Diamonds" placeholder="">
+                                </div>
+                                <div>
+                                    <label style="font-size: 13px;">♣ Trèfles</label>
+                                    <input type="text" id="bidOpp2Clubs" placeholder="">
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeBiddingSequenceModal()">Annuler</button>
+                    <button class="btn btn-success" onclick="saveBiddingSequence()">Ajouter la séquence</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Statistics -->
+        <div id="statsModal" class="modal">
+            <div class="modal-content modal-content-wide">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title">📊 Statistiques sur les donnes générées</h2>
+                        <div class="info-text" id="statsSubtitle" style="margin-top: 4px;"></div>
+                    </div>
+                    <button class="close-btn" onclick="closeStatsModal()">&times;</button>
+                </div>
+
+                <div class="hand-constraints-grid" style="grid-template-columns: 1fr; gap: 25px;">
+                    <div class="position-section">
+                        <div class="position-title">1/ Répartition des honneurs</div>
+                        <div id="statsHonorsBody"></div>
+                    </div>
+                    <div class="position-section">
+                        <div class="position-title">2/ Forme des mains</div>
+                        <div id="statsShapeBody" style="max-height: 55vh; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeStatsModal()">Fermer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+	
+    <script src="sequences.js"></script>
+    <script src="generator.js"></script>
+    <script src="modal.js"></script>
+    <script>var Module = {};</script>
+    <script src="dds-lib.js"></script>
+    <script src="dds-controller.js"></script>
+    <script>
+		function toggleDealerSelection() {
+			const isRotating = document.getElementById('rotatingDealer').checked;
+			document.getElementById('fixedDealerSection').style.display = isRotating ? 'none' : 'flex';
+			if (!isRotating) {
+				document.getElementById('fixedDealer').value = '';
+			}
+		}
+    </script>
+</body>
+</html>

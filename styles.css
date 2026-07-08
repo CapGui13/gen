@@ -1,0 +1,1351 @@
+/*
+ * styles.css - Feuille de styles du générateur de donnes de bridge
+ *
+ * ===== ORGANISATION =====
+ * 1. Reset & variables globales (body, conteneur principal)
+ * 2. Thème clair/sombre (body.dark-mode) : transitions fluides (0.3s)
+ * 3. Panels & modales (input fields, dropdowns, buttons)
+ * 4. Buttons : btn-primary (bleu), btn-success (vert), btn-warning (jaune), btn-danger (rouge)
+ * 5. Mains de bridge (hand-cards, suit symbols, card-line)
+ * 6. Presets de distribution (dist-preset-wrapper, dist-preset-group, checkboxes)
+ * 7. Tableau de double mort (dd-table) : cases colorées (dd-best-contract vert vif, dd-secondary-contract vert terne)
+ * 8. Notation FR/EN : toggle button .card-notation-btn (coin supérieur droit, sous le thème)
+ * 9. UI de téléchargement par donne (deal-download-wrapper, menu déroulant)
+ *
+ * ===== PALETTE COULEURS =====
+ * Clair : fond vert/bleu gradient, texte gris foncé
+ * Sombre : fond bleu marine gradient, texte gris clair
+ * Accents : bleu #3498db (primary), vert #27ae60 (success), jaune #f1c40f (warning)
+ * Double mort : vert vif #4a8f5c (best), vert terne #3d4f40 dark mode (secondary)
+ *
+ * ===== TRANSITION THÈME =====
+ * Tous les éléments clés ont transition: 0.3s (background, color, border-color) pour fluidité.
+ * Classes dark-mode appliquées et supprimées dynamiquement par toggleTheme() (generator.js).
+ *
+ * ===== NOTATION FR/EN =====
+ * Bouton .card-notation-btn (EN/FR, coin haut droit). Basé sur .theme-toggle-btn (même style).
+ * Notation affichée changée via formatCardsForDisplay() côté JS ; CSS n'intervient pas.
+ */
+
+/* Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Body & Container */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 100%);
+    padding: 20px;
+    min-height: 100vh;
+    transition: background 0.3s, color 0.3s;
+}
+
+body.dark-mode {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #e0e0e0;
+}
+
+.container {
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+/* Typography */
+h1 {
+    text-align: center;
+    color: #2c3e50;
+    margin-bottom: 30px;
+    font-size: 2.5em;
+    transition: color 0.3s;
+}
+
+body.dark-mode h1 {
+    color: #e0e0e0;
+}
+
+/* Panels */
+.panel {
+    background: white;
+    border-radius: 15px;
+    padding: 25px;
+    margin-bottom: 25px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    transition: background 0.3s, box-shadow 0.3s;
+}
+
+body.dark-mode .panel {
+    background: #0f3460;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+/* Form Elements */
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #34495e;
+    transition: color 0.3s;
+}
+
+body.dark-mode label {
+    color: #e0e0e0;
+}
+
+input[type="number"], 
+select, 
+input[type="text"], 
+textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: border-color 0.3s, background 0.3s, color 0.3s;
+    font-family: inherit;
+}
+
+/* Le rendu natif du <select> (flèche, liste déroulante) échappe en grande partie au CSS et
+   peut être recoloré par le navigateur/l'OS (mode sombre forcé, contraste élevé) indépendamment
+   du thème du site — d'où un select qui jure avec le reste d'une page pourtant en thème clair.
+   On désactive ce rendu natif et on redessine une flèche nous-mêmes pour garder un style
+   cohérent avec les boutons, quel que soit le navigateur ou les préférences système. */
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: #fff;
+    color: #2c3e50;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237f8c8d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    padding-right: 40px;
+    cursor: pointer;
+}
+
+body.dark-mode input[type="number"],
+body.dark-mode select,
+body.dark-mode input[type="text"],
+body.dark-mode textarea {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border-color: #533483;
+}
+
+body.dark-mode select {
+    background-color: #1a1a2e;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0e0e0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+}
+
+select:hover {
+    border-color: #3498db;
+}
+
+/* Selects "compacts" utilisés inline dans des barres d'actions (donneur fixe, filtre des
+   donnes) plutôt qu'en pleine largeur dans un formulaire vertical. */
+select.select-compact {
+    width: auto;
+    padding: 10px 36px 10px 14px;
+    font-size: 14px;
+    border-width: 1px;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+input:focus, 
+select:focus, 
+textarea:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+/* Buttons */
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-right: 10px;
+}
+
+.btn-primary {
+    background: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2980b9;
+}
+
+.btn-success {
+    background: #27ae60;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #229954;
+}
+
+.btn-warning {
+    background: #f1c40f;
+    color: #2c3e50;
+}
+
+.btn-warning:hover {
+    background: #d4ac0d;
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.btn-download {
+    background: #9b59b6;
+    color: white;
+}
+
+.btn-download:hover {
+    background: #8e44ad;
+}
+
+/* Constraints */
+.constraint-list {
+    margin-bottom: 15px;
+}
+
+#constraintSummary {
+    background: rgba(52, 152, 219, 0.08);
+    color: #2c3e50;
+}
+
+body.dark-mode #constraintSummary {
+    background: rgba(52, 152, 219, 0.15);
+    color: #e0e0e0;
+    border-color: #3498db;
+}
+
+.constraint-item {
+    background: #ecf0f1;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    transition: background 0.3s;
+}
+
+body.dark-mode .constraint-item {
+    background: #16213e;
+}
+
+.constraint-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.constraint-position {
+    font-weight: bold;
+    font-size: 18px;
+    color: #2c3e50;
+    transition: color 0.3s;
+}
+
+body.dark-mode .constraint-position {
+    color: #e0e0e0;
+}
+
+.constraint-details {
+    font-size: 14px;
+    color: #555;
+    line-height: 1.6;
+    transition: color 0.3s;
+}
+
+body.dark-mode .constraint-details {
+    color: #b0b0b0;
+}
+
+/* Grids */
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.deals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+/* Deal Cards */
+.deal-card {
+    background: white;
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    position: relative;
+    transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+}
+
+body.dark-mode .deal-card {
+    background: #0f3460;
+    border-color: #533483;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+
+.deal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #ddd;
+    transition: border-color 0.3s;
+}
+
+body.dark-mode .deal-header {
+    border-bottom-color: #533483;
+}
+
+.deal-number {
+    font-weight: bold;
+    font-size: 16px;
+    color: #2c3e50;
+    transition: color 0.3s;
+}
+
+body.dark-mode .deal-number {
+    color: #e0e0e0;
+}
+
+.deal-info {
+    font-size: 12px;
+    color: #555;
+    text-align: right;
+    line-height: 1.3;
+    transition: color 0.3s;
+}
+
+body.dark-mode .deal-info {
+    color: #b0b0b0;
+}
+
+.deal-header-right {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.deal-download-wrapper {
+    position: relative;
+}
+
+.deal-download-btn {
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #555;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 6px;
+    transition: background 0.2s, border-color 0.2s, color 0.3s;
+}
+
+.deal-download-btn:hover {
+    background: #f0f0f0;
+    border-color: #999;
+}
+
+body.dark-mode .deal-download-btn {
+    border-color: #533483;
+    color: #b0b0b0;
+}
+
+body.dark-mode .deal-download-btn:hover {
+    background: #2a2a4a;
+}
+
+.deal-download-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 20;
+    min-width: 70px;
+    overflow: hidden;
+}
+
+.deal-download-menu.open {
+    display: block;
+}
+
+.deal-download-menu button {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    text-align: left;
+    font-size: 12px;
+    color: #333;
+    cursor: pointer;
+}
+
+.deal-download-menu button:hover {
+    background: #f0f0f0;
+}
+
+body.dark-mode .deal-download-menu {
+    background: #26264a;
+    border-color: #533483;
+}
+
+body.dark-mode .deal-download-menu button {
+    color: #e0e0e0;
+}
+
+body.dark-mode .deal-download-menu button:hover {
+    background: #2a2a4a;
+}
+
+/* Vulnerability colors */
+.vuln-text {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.vuln-red {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.vuln-all {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+/* Deal Grid Layout */
+.deal-grid {
+    display: grid;
+    grid-template-columns: auto 50px auto;
+    grid-template-rows: auto 50px auto;
+    gap: 8px;
+    align-items: center;
+    justify-items: center;
+    padding: 8px;
+    padding-bottom: 30px;
+}
+
+.hand {
+    display: flex;
+    flex-direction: column;
+}
+
+.hand.north {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.hand.west {
+    grid-column: 1;
+    grid-row: 2;
+    align-items: flex-end;
+}
+
+.hand.east {
+    grid-column: 3;
+    grid-row: 2;
+    align-items: flex-start;
+}
+
+.hand.south {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+/* Center Box */
+.center-box {
+    grid-column: 2;
+    grid-row: 2;
+    width: 50px;
+    height: 50px;
+    background: #2e7d32;
+    color: white;
+    border: 3px solid #1b5e20;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.center-box.vuln-ns {
+    border-top-color: #d32f2f;
+    border-top-width: 6px;
+    border-bottom-color: #d32f2f;
+    border-bottom-width: 6px;
+    border-left-width: 3px;
+    border-right-width: 3px;
+}
+
+.center-box.vuln-ew {
+    border-left-color: #d32f2f;
+    border-left-width: 6px;
+    border-right-color: #d32f2f;
+    border-right-width: 6px;
+    border-top-width: 3px;
+    border-bottom-width: 3px;
+}
+
+.center-box.vuln-all {
+    border-color: #d32f2f;
+    border-width: 5px;
+}
+
+/* Cards Display */
+.hand-cards {
+    font-size: 14px;
+    line-height: 1.4;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    text-align: left;
+}
+
+.card-line {
+    display: grid;
+    grid-template-columns: 16px 1fr;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 1px;
+}
+
+.suit-symbol {
+    font-size: 15px;
+    display: flex;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.cards {
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-align: left;
+}
+
+/* Suit Colors */
+.spades {
+    color: #000;
+}
+
+body.dark-mode .spades {
+    color: #e0e0e0;
+}
+
+.hearts {
+    color: #e74c3c;
+}
+
+.diamonds {
+    color: #e67e22;
+}
+
+.clubs {
+    color: #27ae60;
+}
+
+/* Points Display */
+.all-points {
+    position: absolute;
+    bottom: 5px;
+    left: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, 22px);
+    grid-template-rows: repeat(3, 22px);
+    gap: 0;
+    font-size: 11px;
+    font-weight: bold;
+    color: #333;
+    transition: color 0.3s;
+}
+
+body.dark-mode .all-points {
+    color: #e0e0e0;
+}
+
+.point-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.point-center {
+    grid-column: 2;
+    grid-row: 2;
+    background: #f0f0f0;
+    border: 2px solid #333;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: bold;
+    transition: background 0.3s, border-color 0.3s, color 0.3s;
+}
+
+body.dark-mode .point-center {
+    background: #1a1a2e;
+    border-color: #533483;
+    color: #e0e0e0;
+}
+
+.point-n {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.point-e {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+.point-s {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+.point-w {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+/* Header Actions */
+.header-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+/* Loading */
+.loading {
+    text-align: center;
+    padding: 40px;
+    font-size: 18px;
+    color: #7f8c8d;
+    transition: color 0.3s;
+}
+
+body.dark-mode .loading {
+    color: #b0b0b0;
+}
+
+/* Info Text */
+.info-text {
+    font-size: 13px;
+    color: #7f8c8d;
+    font-style: italic;
+    margin-top: 5px;
+    transition: color 0.3s;
+}
+
+body.dark-mode .info-text {
+    color: #95a5a6;
+}
+
+/* Modals */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 20px auto;
+    padding: 20px;
+    border-radius: 15px;
+    max-width: 900px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+    transition: background 0.3s, color 0.3s;
+}
+
+body.dark-mode .modal-content {
+    background-color: #0f3460;
+    color: #e0e0e0;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #ddd;
+    transition: border-color 0.3s;
+}
+
+body.dark-mode .modal-header {
+    border-bottom-color: #533483;
+}
+
+.modal-title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #2c3e50;
+    transition: color 0.3s;
+}
+
+body.dark-mode .modal-title {
+    color: #e0e0e0;
+}
+
+.close-btn {
+    font-size: 28px;
+    font-weight: bold;
+    color: #aaa;
+    cursor: pointer;
+    border: none;
+    background: none;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    transition: color 0.3s;
+}
+
+.close-btn:hover {
+    color: #000;
+}
+
+body.dark-mode .close-btn:hover {
+    color: #fff;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 15px;
+    padding-top: 12px;
+    border-top: 2px solid #ddd;
+    transition: border-color 0.3s;
+}
+
+body.dark-mode .modal-footer {
+    border-top-color: #533483;
+}
+
+/* Hand Constraints Grid */
+.hand-constraints-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.line-constraints-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.bidding-roles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 20px;
+}
+
+.modal-content-wide {
+    max-width: 1400px;
+}
+
+.position-section {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    border: 2px solid #ddd;
+    transition: background 0.3s, border-color 0.3s;
+}
+
+body.dark-mode .position-section {
+    background: #16213e;
+    border-color: #533483;
+}
+
+/* Sections de contraintes dans la modal d'enchères */
+body.dark-mode #biddingSequenceModal .position-section,
+body.dark-mode #biddingSequenceModal > .modal-content > div > div[style*="background: #f8f9fa"],
+body.dark-mode #biddingSequenceModal div[style*="background: #f8f9fa"] {
+    background: #16213e !important;
+}
+
+body.dark-mode #biddingSequenceModal div[style*="background: #fff3cd"] {
+    background: #3d2f1f !important;
+}
+
+body.dark-mode #biddingSequenceModal h4 {
+    color: #e0e0e0 !important;
+}
+
+.position-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 15px;
+    text-align: center;
+    transition: color 0.3s;
+}
+
+body.dark-mode .position-title {
+    color: #e0e0e0;
+}
+
+.constraint-input-group {
+    margin-bottom: 15px;
+}
+
+.constraint-input-label {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #34495e;
+    transition: color 0.3s;
+}
+
+body.dark-mode .constraint-input-label {
+    color: #e0e0e0;
+}
+
+.constraint-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.3s, background 0.3s, color 0.3s;
+}
+
+body.dark-mode .constraint-input {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border-color: #533483;
+}
+
+.constraint-input:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.constraint-input::placeholder {
+    color: #bbb;
+    font-size: 12px;
+}
+
+body.dark-mode .constraint-input::placeholder {
+    color: #666;
+}
+
+/* Dealer Options */
+.dealer-options-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+/* Theme Toggle */
+.theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.theme-toggle-btn {
+    background: #3498db;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.theme-toggle-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+body.dark-mode .theme-toggle-btn {
+    background: #f39c12;
+}
+
+.card-notation-btn {
+    background: #3498db;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.card-notation-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+body.dark-mode .card-notation-btn {
+    background: #f39c12;
+}
+
+/* Presets de distribution */
+.dist-preset-wrapper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.dist-preset-wrapper > input {
+    flex: 1;
+    min-width: 0;
+}
+
+.dist-preset-btn {
+    flex-shrink: 0;
+    width: 40px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    background: #ecf0f1;
+    cursor: pointer;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.dist-preset-btn:hover {
+    background: #dfe6e9;
+    border-color: #3498db;
+}
+
+body.dark-mode .dist-preset-btn {
+    background: #16213e;
+    border-color: #533483;
+}
+
+body.dark-mode .dist-preset-btn:hover {
+    border-color: #3498db;
+}
+
+#distPresetModalBody {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.dist-preset-group {
+    margin-bottom: 10px;
+}
+
+.dist-preset-group:last-child {
+    margin-bottom: 0;
+}
+
+.dist-preset-group-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #7f8c8d;
+    margin-bottom: 6px;
+}
+
+body.dark-mode .dist-preset-group-label {
+    color: #95a5a6;
+}
+
+.dist-preset-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: normal;
+    margin: 0;
+}
+
+.dist-preset-item input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
+.dist-preset-pattern {
+    font-family: 'Consolas', monospace;
+    font-weight: 600;
+    color: #2c3e50;
+    min-width: 44px;
+}
+
+body.dark-mode .dist-preset-pattern {
+    color: #e0e0e0;
+}
+
+.dist-preset-item-label {
+    color: #7f8c8d;
+    font-size: 12px;
+}
+
+body.dark-mode .dist-preset-item-label {
+    color: #95a5a6;
+}
+
+.dist-preset-legend {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #dcdcdc;
+    font-size: 11px;
+    font-style: italic;
+    color: #95a5a6;
+    line-height: 1.4;
+}
+
+body.dark-mode .dist-preset-legend {
+    border-top-color: #444;
+    color: #7f8c8d;
+}
+
+.dist-preset-body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 28px;
+}
+
+.dist-preset-body-grid .dist-preset-legend {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+    .dist-preset-body-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Double mort (double dummy) */
+.deal-visual {
+    position: relative;
+}
+
+.dd-table-container {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: center;
+    transition: border-color 0.3s;
+}
+
+body.dark-mode .dd-table-container {
+    border-top-color: #533483;
+}
+
+.dd-table-placeholder {
+    font-size: 12px;
+    color: #7f8c8d;
+    font-style: italic;
+    padding: 6px 0;
+}
+
+body.dark-mode .dd-table-placeholder {
+    color: #95a5a6;
+}
+
+.dd-table-error {
+    font-size: 12px;
+    color: #e74c3c;
+    padding: 6px 0;
+}
+
+.dd-compute-btn {
+    font-size: 12px;
+    padding: 6px 12px;
+    margin: 0;
+}
+
+table.dd-table {
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+table.dd-table th,
+table.dd-table td {
+    width: 26px;
+    height: 22px;
+    text-align: center;
+    border: 1px solid #ddd;
+    transition: border-color 0.3s, color 0.3s;
+}
+
+body.dark-mode table.dd-table th,
+body.dark-mode table.dd-table td {
+    border-color: #533483;
+}
+
+table.dd-table thead th {
+    font-weight: bold;
+    color: #2c3e50;
+    background: #ecf0f1;
+}
+
+body.dark-mode table.dd-table thead th {
+    color: #e0e0e0;
+    background: #16213e;
+}
+
+table.dd-table tbody th {
+    font-weight: bold;
+    background: #ecf0f1;
+}
+
+body.dark-mode table.dd-table tbody th {
+    background: #16213e;
+}
+
+table.dd-table tbody td {
+    color: #2c3e50;
+}
+
+body.dark-mode table.dd-table tbody td {
+    color: #e0e0e0;
+}
+
+table.dd-table tbody td.dd-best-contract {
+    background: #4a8f5c;
+    color: #fff;
+    font-weight: bold;
+}
+
+body.dark-mode table.dd-table tbody td.dd-best-contract {
+    background: #3a7248;
+    color: #fff;
+}
+
+table.dd-table tbody td.dd-secondary-contract {
+    background: #b9d4bd;
+    color: #2c3e2e;
+    font-weight: 600;
+}
+
+body.dark-mode table.dd-table tbody td.dd-secondary-contract {
+    background: #3d4f40;
+    color: #cfe0d1;
+}
+
+.dd-progress-bar {
+    text-align: center;
+    font-size: 13px;
+    color: #2c3e50;
+    background: rgba(52, 152, 219, 0.1);
+    border-radius: 8px;
+    padding: 8px;
+    margin-bottom: 15px;
+    transition: background 0.3s, color 0.3s;
+}
+
+body.dark-mode .dd-progress-bar {
+    color: #e0e0e0;
+    background: rgba(52, 152, 219, 0.2);
+}
+
+.dd-fallback-notice {
+    position: relative;
+    font-size: 13px;
+    color: #7a5c00;
+    background: #fff3cd;
+    border: 1px solid #ffe69c;
+    border-radius: 8px;
+    padding: 10px 36px 10px 12px;
+    margin-bottom: 15px;
+    line-height: 1.5;
+    transition: background 0.3s, color 0.3s, border-color 0.3s;
+}
+
+body.dark-mode .dd-fallback-notice {
+    background: #3d2f1f;
+    color: #f0d090;
+    border-color: #5a4520;
+}
+
+.dd-fallback-notice code {
+    background: rgba(0, 0, 0, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'Consolas', monospace;
+}
+
+body.dark-mode .dd-fallback-notice code {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.dd-fallback-notice-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: inherit;
+    opacity: 0.6;
+    padding: 4px;
+}
+
+.dd-fallback-notice-close:hover {
+    opacity: 1;
+}
+
+/* Statistiques */
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.stats-table th,
+.stats-table td {
+    padding: 8px 10px;
+    text-align: center;
+    border-bottom: 1px solid #ddd;
+    transition: border-color 0.3s;
+}
+
+body.dark-mode .stats-table th,
+body.dark-mode .stats-table td {
+    border-bottom-color: #533483;
+}
+
+.stats-table th {
+    background: #ecf0f1;
+    font-weight: 700;
+    color: #2c3e50;
+    transition: background 0.3s, color 0.3s;
+}
+
+body.dark-mode .stats-table th {
+    background: #1a1a2e;
+    color: #e0e0e0;
+}
+
+.stats-table td:first-child,
+.stats-table th:first-child {
+    text-align: left;
+    font-weight: 600;
+}
+
+.stats-table tbody tr:hover {
+    background: rgba(52, 152, 219, 0.08);
+}
+
+body.dark-mode .stats-table tbody tr:hover {
+    background: rgba(52, 152, 219, 0.15);
+}
+
+.stats-total-row td {
+    font-weight: 700;
+    border-top: 2px solid #3498db;
+    border-bottom: none;
+}
+
+.stats-cumulated-hcp {
+    display: flex;
+    justify-content: space-around;
+    gap: 15px;
+    margin-top: 15px;
+    padding: 10px 15px;
+    background: rgba(52, 152, 219, 0.08);
+    border-radius: 8px;
+    font-size: 14px;
+    color: #2c3e50;
+    transition: background 0.3s, color 0.3s;
+}
+
+body.dark-mode .stats-cumulated-hcp {
+    background: rgba(52, 152, 219, 0.15);
+    color: #e0e0e0;
+}
+
+/* Validation des distributions */
+.constraint-input.input-error,
+.dist-preset-wrapper > input.input-error {
+    border-color: #e74c3c !important;
+}
+
+.dist-error-msg {
+    color: #e74c3c;
+    font-size: 12px;
+    margin-top: 4px;
+}
