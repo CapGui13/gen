@@ -58,13 +58,13 @@
         <h1>🎴 Générateur de Donnes de Bridge</h1>
         
         <div class="panel">
-            <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 25px;">
-                <div style="flex: 0 0 200px;">
+            <div class="top-controls-row" style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 25px;">
+                <div class="num-deals-field" style="flex: 0 0 200px;">
                     <label>Nombre de donnes à générer</label>
                     <input type="number" id="numDeals" value="10" min="1" max="1000" style="width: 100%;">
                 </div>
                 
-                <div style="flex: 1;">
+                <div class="top-controls-buttons" style="flex: 1;">
                     <button class="btn btn-primary" onclick="openHandConstraintsModal()">+ Contraintes de main</button>
                     <button class="btn btn-primary" onclick="openLineConstraintsModal()">+ Contraintes de ligne</button>
                     <button class="btn btn-primary" onclick="openBiddingSequenceModal()">+ Séquence d'enchères</button>
@@ -85,7 +85,7 @@
 						Donneur rotatif
 					</label>
 					<div id="fixedDealerSection" style="display: none; margin-left: 20px;">
-						<label style="margin-bottom: 5px; font-size: 14px;">Donneur fixe :</label>
+						<label for="fixedDealer" style="margin: 0; font-weight: normal; font-size: 14px;">Donneur fixe :</label>
 						<select id="fixedDealer" class="select-compact" style="width: 150px;">
 							<option value="">-- Choisir --</option>
 							<option value="N">Nord</option>
