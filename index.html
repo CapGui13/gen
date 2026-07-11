@@ -75,6 +75,7 @@
             </div>
             
             <div class="form-group">
+                <div id="constraintGroupTabs"></div>
                 <div id="constraintList" class="constraint-list"></div>
             </div>
             
@@ -645,6 +646,22 @@
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="closeStatsModal()">Fermer</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale de confirmation générique (remplace les popups confirm() natives du navigateur,
+         disgracieuses et incohérentes avec le reste de l'interface). Pilotée par showConfirmDialog()
+         dans modal.js, qui retourne une Promise<boolean>. -->
+    <div id="confirmDialogModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header">
+                <div class="modal-title">⚠️ Confirmation</div>
+            </div>
+            <div id="confirmDialogMessage" style="padding: 8px 0 4px; font-size: 15px; line-height: 1.6;"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="resolveConfirmDialog(false)">Annuler</button>
+                <button class="btn btn-danger" id="confirmDialogOkBtn" onclick="resolveConfirmDialog(true)">Confirmer</button>
             </div>
         </div>
     </div>

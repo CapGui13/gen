@@ -35,6 +35,8 @@
 //  - 6, 7, 8 : unicolore exact (exactement N cartes dans une couleur)
 //  - 1, 0 : courte (singleton / chicane)
 //  - M5m4, M6m4, M5m5 : majeure/mineure spécifiée (M=majeure, m=mineure)
+//  - M5x4, M5x5, M6x4, M6x5 : majeure + une autre couleur quelconque (l'autre majeure ou une
+//    mineure), la couleur du "x" n'étant pas restreinte
 // Validation : validateDistributionString() rejette patterns invalides.
 //
 // ===== DÉPENDANCES =====
@@ -64,8 +66,8 @@ function closeHandConstraintsModal() {
 // on annule aussi la conversion AND->OR faite sur la contrainte d'origine
 function cancelHandConstraintsModal() {
     if (pendingEditBackup && pendingEditBackup.type === 'hand') {
-        // On restaure la contrainte qu'on était en train de modifier, non sauvegardée
-        constraints.push(pendingEditBackup.constraint);
+        // On restaure toutes les contraintes qu'on était en train de modifier, non sauvegardées
+        constraints.push(...pendingEditBackup.constraints);
         pendingEditBackup = null;
         renderConstraints();
     } else if (pendingOrTarget && pendingOrTarget.type === 'hand') {
@@ -100,8 +102,8 @@ function closeLineConstraintsModal() {
 // Ferme la modal en annulant : même logique que cancelHandConstraintsModal, pour les lignes
 function cancelLineConstraintsModal() {
     if (pendingEditBackup && pendingEditBackup.type === 'line') {
-        // On restaure la contrainte qu'on était en train de modifier, non sauvegardée
-        constraints.push(pendingEditBackup.constraint);
+        // On restaure toutes les contraintes qu'on était en train de modifier, non sauvegardées
+        constraints.push(...pendingEditBackup.constraints);
         pendingEditBackup = null;
         renderConstraints();
     } else if (pendingOrTarget && pendingOrTarget.type === 'line') {
@@ -209,6 +211,158 @@ let pendingOrTarget = null;
 // plutôt que de la perdre définitivement.
 let pendingEditBackup = null;
 
+// ===== GESTION DES BLOCS DE CONTRAINTES (scénarios alternatifs) =====
+//
+// activeGroupId (générator.js) détermine dans quel bloc atterrissent les prochaines contraintes
+// créées via les modales. Les fonctions ci-dessous gèrent la création/suppression/bascule ET↔OU
+// des blocs, et le rendu des onglets au-dessus de la liste de contraintes.
+
+// ===== MODALE DE CONFIRMATION GÉNÉRIQUE =====
+//
+// Remplace les popups confirm() natives du navigateur (grises, non stylées, incohérentes avec
+// le reste de l'interface) par une modale cohérente avec le design de l'appli. Retourne une
+// Promise<boolean> : `if (await showConfirmDialog('...')) { ... }`.
+let _confirmDialogResolve = null;
+
+function showConfirmDialog(message, okLabel = 'Confirmer') {
+    return new Promise(resolve => {
+        _confirmDialogResolve = resolve;
+        document.getElementById('confirmDialogMessage').textContent = message;
+        const okBtn = document.getElementById('confirmDialogOkBtn');
+        if (okBtn) okBtn.textContent = okLabel;
+        document.getElementById('confirmDialogModal').style.display = 'flex';
+    });
+}
+
+function resolveConfirmDialog(result) {
+    document.getElementById('confirmDialogModal').style.display = 'none';
+    if (_confirmDialogResolve) {
+        _confirmDialogResolve(result);
+        _confirmDialogResolve = null;
+    }
+}
+
+function newGroupId() {
+    return 'g' + Date.now() + '-' + Math.floor(Math.random() * 10000);
+}
+
+// Crée un nouveau bloc (scénario alternatif), l'active, et bascule dessus : les prochaines
+// contraintes ajoutées via "+ Contraintes de main" etc. y atterriront. Par défaut en OU,
+// puisque le but même d'un nouveau bloc est d'exprimer une alternative au(x) précédent(s)
+// (pour un simple ET, ajouter la contrainte dans le bloc déjà actif suffit).
+function createConstraintGroup(operator = 'OR') {
+    const id = newGroupId();
+    constraintGroups.push({ id, operator });
+    activeGroupId = id;
+    renderConstraints();
+}
+
+function setActiveGroup(id) {
+    if (!constraintGroups.find(g => g.id === id)) return;
+    activeGroupId = id;
+    renderConstraints();
+}
+
+// Le premier scénario n'a pas d'opérateur affiché (rien avant lui à combiner) : rien à régler.
+function setGroupOperator(id, operator) {
+    if (id === defaultGroupId()) return;
+    const g = constraintGroups.find(x => x.id === id);
+    if (!g || g.operator === operator) return;
+    g.operator = operator;
+    renderConstraints();
+}
+
+// Déplace un scénario d'un cran (direction : -1 = vers la gauche/avant, +1 = vers la droite/après).
+// Comme l'évaluation se lit en chaîne de gauche à droite (voir checkAllConstraints), réordonner
+// change concrètement la logique ET/OU — c'est le but, mais ça mérite d'être su : le scénario qui
+// se retrouve en première position perd son opérateur affiché (plus rien avant lui à combiner).
+function moveConstraintGroup(id, direction) {
+    const idx = constraintGroups.findIndex(g => g.id === id);
+    if (idx === -1) return;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= constraintGroups.length) return;
+    const tmp = constraintGroups[idx];
+    constraintGroups[idx] = constraintGroups[newIdx];
+    constraintGroups[newIdx] = tmp;
+    renderConstraints();
+}
+
+// Supprime un bloc et ses contraintes (avec confirmation stylée s'il n'est pas vide). Le premier
+// scénario ne peut pas être supprimé : il reste toujours au moins un scénario "de base".
+async function deleteConstraintGroup(id) {
+    if (id === defaultGroupId() || constraintGroups.length <= 1) return;
+    const idx = constraintGroups.findIndex(g => g.id === id);
+    if (idx === -1) return;
+
+    const dgid = defaultGroupId();
+    const groupConstraints = constraints.filter(c => (c.groupId || dgid) === id);
+    if (groupConstraints.length > 0) {
+        const confirmed = await showConfirmDialog(
+            `Ce scénario contient ${groupConstraints.length} contrainte(s). Les supprimer avec le scénario ?`,
+            'Supprimer'
+        );
+        if (!confirmed) return;
+    }
+
+    constraints = constraints.filter(c => (c.groupId || dgid) !== id);
+    constraintGroups.splice(idx, 1);
+    if (activeGroupId === id) activeGroupId = defaultGroupId();
+    renderConstraints();
+}
+
+// Affiche les onglets de scénarios au-dessus de la liste de contraintes. Reste discret (ne
+// s'affiche pas du tout) tant qu'il n'y a qu'un unique scénario vide : la notion de "scénarios"
+// n'a d'intérêt que dès qu'on en a au moins deux, ou que le premier contient déjà quelque chose.
+function renderConstraintGroupTabs() {
+    const el = document.getElementById('constraintGroupTabs');
+    if (!el) return;
+
+    if (constraintGroups.length <= 1 && constraints.length === 0) {
+        el.innerHTML = '';
+        return;
+    }
+
+    const dgid = defaultGroupId();
+    const lastIdx = constraintGroups.length - 1;
+
+    const chips = constraintGroups.map((g, idx) => {
+        const count = constraints.filter(c => (c.groupId || dgid) === g.id).length;
+        const isActive = g.id === activeGroupId;
+
+        // Switch ET/OU à deux états visibles (plus explicite qu'une pastille à un seul état
+        // qu'il fallait deviner cliquable).
+        const opSwitch = idx === 0 ? '' : `
+            <div class="group-op-switch" onclick="event.stopPropagation();">
+                <span class="group-op-option ${g.operator === 'AND' ? 'selected' : ''}" onclick="setGroupOperator('${g.id}', 'AND')">ET</span>
+                <span class="group-op-option ${g.operator === 'OR' ? 'selected' : ''}" onclick="setGroupOperator('${g.id}', 'OR')">OU</span>
+            </div>`;
+
+        const moveLeftBtn = idx > 0 ? `
+            <span class="group-move" onclick="event.stopPropagation(); moveConstraintGroup('${g.id}', -1)" title="Déplacer avant">◀</span>` : '';
+        const moveRightBtn = idx < lastIdx ? `
+            <span class="group-move" onclick="event.stopPropagation(); moveConstraintGroup('${g.id}', 1)" title="Déplacer après">▶</span>` : '';
+        const delBtn = constraintGroups.length > 1 && idx !== 0 ? `
+            <span class="group-delete" onclick="event.stopPropagation(); deleteConstraintGroup('${g.id}')" title="Supprimer ce scénario">✕</span>` : '';
+
+        return `
+            <div class="constraint-group-chip ${isActive ? 'active' : ''}" onclick="setActiveGroup('${g.id}')">
+                ${opSwitch}
+                <span>Scénario ${idx + 1}${count > 0 ? ` (${count})` : ''}</span>
+                <span class="group-move-pair">${moveLeftBtn}${moveRightBtn}</span>
+                ${delBtn}
+            </div>
+        `;
+    }).join('');
+
+    el.innerHTML = `
+        <div class="constraint-group-tabs-row">
+            ${chips}
+            <button type="button" class="btn btn-secondary constraint-group-add" onclick="createConstraintGroup('OR')">+ Scénario alternatif (OU)</button>
+        </div>
+        <div class="constraint-group-hint">Les contraintes ajoutées via les boutons ci-dessus rejoignent le scénario actif (surligné). Cliquez un scénario pour l'activer ; ◀▶ pour le réordonner (l'ordre compte : ET/OU se lit de gauche à droite).</div>
+    `;
+}
+
 // Parse une contrainte avec support du "OU" pour des plages disjointes
 // Ex: "12-14 OU 18+" => { ranges: [{min:12,max:14}, {min:18,max:defaultMax}] }
 function parseConstraintRanges(value, defaultMax) {
@@ -268,6 +422,7 @@ function saveHandConstraints() {
                 type: 'hand',
                 position: positionNames[pos],
                 operator: isAddingOrVariant ? 'OR' : 'AND',
+                groupId: activeGroupId,
                 pointType: pointType,
                 hcp: parseConstraintValueHCP(hcp),
                 suits: {
@@ -324,6 +479,7 @@ function saveLineConstraints() {
                 type: 'line',
                 line: lineNames[line],
                 operator: isAddingOrVariant ? 'OR' : 'AND',
+                groupId: activeGroupId,
                 pointType: pointType,
                 hcp: parseConstraintValueHCP(hcp),
                 fits: {
@@ -455,6 +611,7 @@ function saveBiddingSequence() {
             type: 'hand',
             position: openerPos,
             operator: 'AND',
+            groupId: activeGroupId,
             pointType: openerPointType,
             hcp: parseConstraintValueHCP(openerHcp),
             suits: {
@@ -484,6 +641,7 @@ function saveBiddingSequence() {
             type: 'hand',
             position: responderPos,
             operator: 'AND',
+            groupId: activeGroupId,
             pointType: responderPointType,
             hcp: parseConstraintValueHCP(responderHcp),
             suits: {
@@ -514,6 +672,7 @@ function saveBiddingSequence() {
                 type: 'hand',
                 position: opp1Pos,
                 operator: 'AND',
+                groupId: activeGroupId,
                 pointType: opp1PointType,
                 hcp: parseConstraintValueHCP(opp1Hcp),
                 suits: {
@@ -543,6 +702,7 @@ function saveBiddingSequence() {
                 type: 'hand',
                 position: opp2Pos,
                 operator: 'AND',
+                groupId: activeGroupId,
                 pointType: opp2PointType,
                 hcp: parseConstraintValueHCP(opp2Hcp),
                 suits: {
@@ -571,6 +731,7 @@ function createConstraintFromSEF(position, sefData, sequenceText, role) {
         type: 'hand',
         position: position,
         operator: 'AND',
+        groupId: activeGroupId,
         biddingSequence: sequenceText,
         biddingRole: role,
         suits: {
@@ -697,6 +858,7 @@ function addOrVariantHand(id) {
     if (!c || c.type !== 'hand') return;
     
     c.operator = 'OR';
+    activeGroupId = c.groupId || defaultGroupId();
     pendingOrTarget = { type: 'hand', position: c.position };
     renderConstraints();
     openHandConstraintsModal();
@@ -708,19 +870,24 @@ function addOrVariantLine(id) {
     if (!c || c.type !== 'line') return;
     
     c.operator = 'OR';
+    activeGroupId = c.groupId || defaultGroupId();
     pendingOrTarget = { type: 'line', line: c.line };
     renderConstraints();
     openLineConstraintsModal();
 }
 
-// Exporte les contraintes actuelles dans un fichier JSON téléchargeable
+// Exporte les contraintes actuelles dans un fichier JSON téléchargeable.
+// Format { constraints, constraintGroups } : conserve les scénarios (blocs) à l'export/import.
+// Compatible en LECTURE avec l'ancien format (simple tableau plat de contraintes, sans blocs) —
+// voir importConstraintsPreset.
 function exportConstraintsPreset() {
     if (constraints.length === 0) {
         alert('Aucune contrainte à exporter.');
         return;
     }
     
-    const json = JSON.stringify(constraints, null, 2);
+    const payload = { constraints, constraintGroups };
+    const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -736,7 +903,7 @@ function importConstraintsPreset(event) {
     if (!file) return;
     
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         let imported;
         try {
             imported = JSON.parse(e.target.result);
@@ -746,16 +913,32 @@ function importConstraintsPreset(event) {
             return;
         }
         
-        if (!Array.isArray(imported)) {
+        let importedConstraints;
+        let importedGroups;
+
+        if (Array.isArray(imported)) {
+            // Ancien format : simple tableau plat de contraintes (sans notion de scénarios).
+            // Toutes rejoignent un unique scénario par défaut — comportement identique à avant
+            // l'introduction des scénarios alternatifs.
+            importedConstraints = imported;
+            importedGroups = [{ id: newGroupId(), operator: 'AND' }];
+        } else if (imported && Array.isArray(imported.constraints)) {
+            // Nouveau format : { constraints, constraintGroups }
+            importedConstraints = imported.constraints;
+            importedGroups = Array.isArray(imported.constraintGroups) && imported.constraintGroups.length > 0
+                ? imported.constraintGroups
+                : [{ id: newGroupId(), operator: 'AND' }];
+        } else {
             alert('Erreur : le fichier ne contient pas une liste de contraintes valide.');
             event.target.value = '';
             return;
         }
         
         if (constraints.length > 0) {
-            const confirmed = confirm(
+            const confirmed = await showConfirmDialog(
                 `Vous avez ${constraints.length} contrainte(s) en cours. ` +
-                `L'import va les remplacer entièrement par les ${imported.length} contrainte(s) du fichier. Continuer ?`
+                `L'import va les remplacer entièrement par les ${importedConstraints.length} contrainte(s) du fichier. Continuer ?`,
+                'Remplacer'
             );
             if (!confirmed) {
                 event.target.value = '';
@@ -763,7 +946,14 @@ function importConstraintsPreset(event) {
             }
         }
         
-        constraints = imported;
+        // Les contraintes sans groupId (venant de l'ancien format, ou d'un export antérieur
+        // à cette fonctionnalité) rejoignent le premier scénario importé.
+        const firstImportedGroupId = importedGroups[0].id;
+        importedConstraints.forEach(c => { if (!c.groupId) c.groupId = firstImportedGroupId; });
+
+        constraints = importedConstraints;
+        constraintGroups = importedGroups;
+        activeGroupId = firstImportedGroupId;
         renderConstraints();
         event.target.value = '';
     };
@@ -788,60 +978,116 @@ function rangeToInputText(range, defaultMax) {
     return single(range);
 }
 
-// Préremplit la modal de contrainte de main avec une contrainte existante, pour édition
+// Préremplit la modal de contrainte de main pour édition. Pour une contrainte "de base" (pas
+// une variante OU), on réédite TOUTES les positions du même bloc en une fois — c'est comme ça
+// qu'elles ont été créées à l'origine (un seul passage dans "Contraintes de main" remplissant
+// N et S ensemble par ex.), donc "Modifier" doit rouvrir la même vue d'ensemble plutôt que de
+// forcer une main à la fois. Les variantes OU restent éditées seules (elles sont scopées à une
+// position précise par nature).
 function editHandConstraint(id) {
     const c = constraints.find(x => x.id === id);
     if (!c || c.type !== 'hand') return;
-    
-    const pos = c.position.toLowerCase();
-    
-    document.getElementById(`modal-${pos}-hcp`).value = rangeToInputText(c.hcp, 40);
-    document.getElementById(`modal-${pos}-spades`).value = rangeToInputText(c.suits.SPADES, 13);
-    document.getElementById(`modal-${pos}-hearts`).value = rangeToInputText(c.suits.HEARTS, 13);
-    document.getElementById(`modal-${pos}-diamonds`).value = rangeToInputText(c.suits.DIAMONDS, 13);
-    document.getElementById(`modal-${pos}-clubs`).value = rangeToInputText(c.suits.CLUBS, 13);
-    document.getElementById(`modal-${pos}-dist`).value = c.distributions || '';
-    
-    const pointTypeRadio = document.querySelector(`input[name="hand-${pos}-pointType"][value="${c.pointType}"]`);
-    if (pointTypeRadio) pointTypeRadio.checked = true;
-    
+
+    const isOrVariant = c.operator === 'OR';
+    const gid = c.groupId || defaultGroupId();
+    const siblings = isOrVariant
+        ? [c]
+        : constraints.filter(x => x.type === 'hand' && x.operator !== 'OR' && (x.groupId || defaultGroupId()) === gid);
+
+    // On repart de champs vides pour éviter qu'une saisie non sauvegardée d'une précédente
+    // ouverture de la modal ne traîne sur une position qu'on ne réédite pas ici.
+    ['n', 'e', 's', 'w'].forEach(pos => {
+        document.getElementById(`modal-${pos}-hcp`).value = '';
+        document.getElementById(`modal-${pos}-spades`).value = '';
+        document.getElementById(`modal-${pos}-hearts`).value = '';
+        document.getElementById(`modal-${pos}-diamonds`).value = '';
+        document.getElementById(`modal-${pos}-clubs`).value = '';
+        document.getElementById(`modal-${pos}-dist`).value = '';
+        const hcpRadio = document.querySelector(`input[name="hand-${pos}-pointType"][value="hcp"]`);
+        if (hcpRadio) hcpRadio.checked = true;
+    });
+
+    siblings.forEach(sc => {
+        const pos = sc.position.toLowerCase();
+        document.getElementById(`modal-${pos}-hcp`).value = rangeToInputText(sc.hcp, 40);
+        document.getElementById(`modal-${pos}-spades`).value = rangeToInputText(sc.suits.SPADES, 13);
+        document.getElementById(`modal-${pos}-hearts`).value = rangeToInputText(sc.suits.HEARTS, 13);
+        document.getElementById(`modal-${pos}-diamonds`).value = rangeToInputText(sc.suits.DIAMONDS, 13);
+        document.getElementById(`modal-${pos}-clubs`).value = rangeToInputText(sc.suits.CLUBS, 13);
+        document.getElementById(`modal-${pos}-dist`).value = sc.distributions || '';
+
+        const pointTypeRadio = document.querySelector(`input[name="hand-${pos}-pointType"][value="${sc.pointType}"]`);
+        if (pointTypeRadio) pointTypeRadio.checked = true;
+    });
+
     // Si la contrainte d'origine était une variante OU, on préserve ce statut pour la ressauvegarde
-    pendingOrTarget = (c.operator === 'OR') ? { type: 'hand', position: c.position } : null;
+    pendingOrTarget = isOrVariant ? { type: 'hand', position: c.position } : null;
     
-    // On garde une copie pour pouvoir la restaurer si l'utilisateur annule au lieu de sauvegarder
-    pendingEditBackup = { type: 'hand', constraint: c };
+    // On garde une copie de TOUTES les contraintes retirées pour pouvoir les restaurer si
+    // l'utilisateur annule au lieu de sauvegarder
+    pendingEditBackup = { type: 'hand', constraints: siblings };
     
-    // Supprime l'ancienne contrainte : saveHandConstraints() en créera une nouvelle à sa place
-    constraints = constraints.filter(x => x.id !== id);
+    // La contrainte réédite doit se resauvegarder dans son bloc d'origine, pas dans le bloc
+    // actuellement actif si l'utilisateur a changé d'onglet entre-temps.
+    activeGroupId = gid;
+    
+    // Supprime les anciennes contraintes : saveHandConstraints() en recréera à leur place
+    // (une par position encore renseignée dans le formulaire au moment de la sauvegarde)
+    const idsToRemove = new Set(siblings.map(sc => sc.id));
+    constraints = constraints.filter(x => !idsToRemove.has(x.id));
     renderConstraints();
     
     openHandConstraintsModal();
 }
 
-// Préremplit la modal de contrainte de ligne avec une contrainte existante, pour édition
+// Préremplit la modal de contrainte de ligne pour édition. Même logique que editHandConstraint :
+// réédite NS et EO ensemble si les deux existent dans le même bloc (hors variantes OU, éditées seules).
 function editLineConstraint(id) {
     const c = constraints.find(x => x.id === id);
     if (!c || c.type !== 'line') return;
-    
-    const line = c.line.toLowerCase();
-    
-    document.getElementById(`line-${line}-hcp`).value = rangeToInputText(c.hcp, 40);
-    document.getElementById(`line-${line}-spades-fit`).value = rangeToInputText(c.fits.SPADES, 13);
-    document.getElementById(`line-${line}-hearts-fit`).value = rangeToInputText(c.fits.HEARTS, 13);
-    document.getElementById(`line-${line}-diamonds-fit`).value = rangeToInputText(c.fits.DIAMONDS, 13);
-    document.getElementById(`line-${line}-clubs-fit`).value = rangeToInputText(c.fits.CLUBS, 13);
-    
-    const pointTypeRadio = document.querySelector(`input[name="line-${line}-pointType"][value="${c.pointType}"]`);
-    if (pointTypeRadio) pointTypeRadio.checked = true;
+
+    const isOrVariant = c.operator === 'OR';
+    const gid = c.groupId || defaultGroupId();
+    const siblings = isOrVariant
+        ? [c]
+        : constraints.filter(x => x.type === 'line' && x.operator !== 'OR' && (x.groupId || defaultGroupId()) === gid);
+
+    ['ns', 'ew'].forEach(line => {
+        document.getElementById(`line-${line}-hcp`).value = '';
+        document.getElementById(`line-${line}-spades-fit`).value = '';
+        document.getElementById(`line-${line}-hearts-fit`).value = '';
+        document.getElementById(`line-${line}-diamonds-fit`).value = '';
+        document.getElementById(`line-${line}-clubs-fit`).value = '';
+        const hcpRadio = document.querySelector(`input[name="line-${line}-pointType"][value="hcp"]`);
+        if (hcpRadio) hcpRadio.checked = true;
+    });
+
+    siblings.forEach(sc => {
+        const line = sc.line.toLowerCase();
+        document.getElementById(`line-${line}-hcp`).value = rangeToInputText(sc.hcp, 40);
+        document.getElementById(`line-${line}-spades-fit`).value = rangeToInputText(sc.fits.SPADES, 13);
+        document.getElementById(`line-${line}-hearts-fit`).value = rangeToInputText(sc.fits.HEARTS, 13);
+        document.getElementById(`line-${line}-diamonds-fit`).value = rangeToInputText(sc.fits.DIAMONDS, 13);
+        document.getElementById(`line-${line}-clubs-fit`).value = rangeToInputText(sc.fits.CLUBS, 13);
+
+        const pointTypeRadio = document.querySelector(`input[name="line-${line}-pointType"][value="${sc.pointType}"]`);
+        if (pointTypeRadio) pointTypeRadio.checked = true;
+    });
     
     // Si la contrainte d'origine était une variante OU, on préserve ce statut pour la ressauvegarde
-    pendingOrTarget = (c.operator === 'OR') ? { type: 'line', line: c.line } : null;
+    pendingOrTarget = isOrVariant ? { type: 'line', line: c.line } : null;
     
-    // On garde une copie pour pouvoir la restaurer si l'utilisateur annule au lieu de sauvegarder
-    pendingEditBackup = { type: 'line', constraint: c };
+    // On garde une copie de TOUTES les contraintes retirées pour pouvoir les restaurer si
+    // l'utilisateur annule au lieu de sauvegarder
+    pendingEditBackup = { type: 'line', constraints: siblings };
     
-    // Supprime l'ancienne contrainte : saveLineConstraints() en créera une nouvelle à sa place
-    constraints = constraints.filter(x => x.id !== id);
+    // La contrainte réédite doit se resauvegarder dans son bloc d'origine, pas dans le bloc
+    // actuellement actif si l'utilisateur a changé d'onglet entre-temps.
+    activeGroupId = gid;
+    
+    // Supprime les anciennes contraintes : saveLineConstraints() en recréera à leur place
+    const idsToRemove = new Set(siblings.map(sc => sc.id));
+    constraints = constraints.filter(x => !idsToRemove.has(x.id));
     renderConstraints();
     
     openLineConstraintsModal();
@@ -931,29 +1177,21 @@ function getConstraintText(c) {
     return parts.length > 0 ? parts.join(' • ') : 'Aucune contrainte spécifique';
 }
 
-function buildConstraintSummary() {
-    const el = document.getElementById('constraintSummary');
-    if (!el) return;
-    
-    if (constraints.length === 0) {
-        el.style.display = 'none';
-        return;
-    }
-    
-    function groupKey(c) {
-        return c.type === 'line' ? `line:${c.line}` : `hand:${c.position}`;
-    }
+// Construit les lignes de résumé (tableau de chaînes HTML) pour un sous-ensemble de contraintes
+// appartenant à UN SEUL bloc. Logique de regroupement OU par clé (position/ligne) inchangée par
+// rapport à avant l'introduction des blocs.
+function buildConstraintSummaryParts(items) {
     function posLabel(c) {
         if (c.type === 'line') return c.line === 'NS' ? 'Ligne NS' : 'Ligne EO';
         const names = { N:'Nord', E:'Est', S:'Sud', W:'Ouest' };
         return names[c.position] || c.position;
     }
-    
+
     // Regrouper : groupes OR par clé, AND individuels
     const groups = {}; // key -> { label, items: [c], isOr }
     const order = [];
-    
-    constraints.forEach(c => {
+
+    items.forEach(c => {
         const key = c.operator === 'OR' ? `or:${groupKey(c)}` : `and:${c.id}`;
         if (!groups[key]) {
             groups[key] = { label: posLabel(c), items: [], isOr: c.operator === 'OR' };
@@ -961,8 +1199,8 @@ function buildConstraintSummary() {
         }
         groups[key].items.push(c);
     });
-    
-    const parts = order.map(key => {
+
+    return order.map(key => {
         const g = groups[key];
         if (!g.isOr) {
             const c = g.items[0];
@@ -986,29 +1224,20 @@ function buildConstraintSummary() {
                 const hcpActive = isRangeActive(c.hcp, 40);
                 return hcpActive ? formatRangeValue(c.hcp, 40) : null;
             }).filter(Boolean);
-            
-            const suitParts = g.items.map(c => {
-                const parts = [];
-                for (const [suit, range] of Object.entries(c.suits)) {
-                    if (isRangeActive(range, 13)) parts.push(`${SUIT_SYMBOLS[suit]}${formatRangeValue(range, 13)}`);
-                }
-                return parts.join(' ');
-            }).filter(Boolean);
-            
+
             const variantTexts = g.items.map((c, i) => {
                 const hcpActive = isRangeActive(c.hcp, 40);
-                const suitActive = Object.entries(c.suits).some(([, r]) => isRangeActive(r, 13));
                 const hcpStr = hcpActive ? formatRangeValue(c.hcp, 40) : '';
                 const suitStr = Object.entries(c.suits).filter(([, r]) => isRangeActive(r, 13))
                     .map(([s, r]) => `${SUIT_SYMBOLS[s]}${formatRangeValue(r, 13)}`).join(' ');
                 return [hcpStr, suitStr].filter(Boolean).join(' ');
             });
-            
+
             // Si toutes les variantes ne diffèrent que par les points, condenser : "HCP: 12 ou 18"
             const allOnlyHcp = g.items.every(c => {
                 return isRangeActive(c.hcp, 40) && !Object.entries(c.suits).some(([, r]) => isRangeActive(r, 13));
             });
-            
+
             let summary;
             if (allOnlyHcp && hcpValues.length > 1) {
                 summary = `${pointTypeLabel}: ${hcpValues.join(' <em style="color:#e67e22">ou</em> ')}`;
@@ -1018,38 +1247,59 @@ function buildConstraintSummary() {
             return `<strong>${g.label}</strong> : ${summary}`;
         }
     });
+}
+
+function buildConstraintSummary() {
+    const el = document.getElementById('constraintSummary');
+    if (!el) return;
     
+    if (constraints.length === 0) {
+        el.style.display = 'none';
+        return;
+    }
+
+    const dgid = defaultGroupId();
+
+    const bodyHtml = constraintGroups.map((group, idx) => {
+        const items = constraints.filter(c => (c.groupId || dgid) === group.id);
+        if (items.length === 0) return '';
+        const opBadge = idx === 0 ? '' : `<span style="color:#e67e22; font-weight:bold; margin-right:6px;">${group.operator === 'OR' ? 'OU' : 'ET'} —</span>`;
+        const parts = buildConstraintSummaryParts(items);
+        return `
+            <div style="margin-top: ${idx === 0 ? '0' : '8px'};">
+                <div style="font-size: 12px; opacity: 0.8; margin-bottom: 2px;">${opBadge}Scénario ${idx + 1}</div>
+                ${parts.map(p => `<div style="padding: 3px 0 3px 10px; border-bottom: 1px solid rgba(52,152,219,0.2);">${p}</div>`).join('')}
+            </div>
+        `;
+    }).join('');
+
     el.style.display = 'block';
     el.innerHTML = `
         <div style="font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; opacity: 0.7;">🔍 Résumé des contraintes</div>
-        ${parts.map(p => `<div style="padding: 3px 0; border-bottom: 1px solid rgba(52,152,219,0.2);">${p}</div>`).join('')}
+        ${bodyHtml}
     `;
 }
 
-function renderConstraints() {
-    const list = document.getElementById('constraintList');
-    if (constraints.length === 0) {
-        list.innerHTML = '<div style="color: #7f8c8d; font-style: italic;">Aucune contrainte définie</div>';
-        return;
-    }
-    
-    function groupKey(c) {
-        return c.type === 'line' ? `line:${c.line}` : `hand:${c.position}`;
-    }
-    
-    function positionLabel(c) {
-        return c.type === 'line'
-            ? `Ligne ${c.line === 'NS' ? 'Nord-Sud' : 'Est-Ouest'}`
-            : getPositionName(c.position);
-    }
-    
-    // Construire les groupes OR et garder les AND dans leur ordre
-    // Un groupe OR est identifié par sa clé (position/ligne) — on les regroupe ensemble
+function groupKey(c) {
+    return c.type === 'line' ? `line:${c.line}` : `hand:${c.position}`;
+}
+
+function positionLabel(c) {
+    return c.type === 'line'
+        ? `Ligne ${c.line === 'NS' ? 'Nord-Sud' : 'Est-Ouest'}`
+        : getPositionName(c.position);
+}
+
+// Construit le HTML d'une liste de contraintes appartenant à UN SEUL bloc (déjà filtrées en
+// amont par renderConstraints). Reprend la logique historique de regroupement visuel des
+// variantes OU par position/ligne, inchangée — seule la portée (un bloc plutôt que la totalité)
+// a changé.
+function buildConstraintItemsHTML(items) {
     const orGroups = {}; // groupKey -> [constraints]
-    const orGroupOrder = []; // ordre d'apparition des groupes dans le tableau original
+    const orGroupOrder = []; // ordre d'apparition des groupes dans le tableau d'origine
     const andConstraints = []; // {constraint, originalIndex}
-    
-    constraints.forEach((c, i) => {
+
+    items.forEach((c, i) => {
         if (c.operator === 'OR') {
             const key = groupKey(c);
             if (!orGroups[key]) {
@@ -1061,23 +1311,23 @@ function renderConstraints() {
             andConstraints.push({ c, originalIndex: i });
         }
     });
-    
+
     // Reconstruire l'ordre d'affichage : intercaler groupes OU et contraintes AND
     // selon leur position relative dans le tableau d'origine
     const renderItems = []; // chaque item est soit {type:'and', c} soit {type:'orGroup', key, members}
-    
+
     orGroupOrder.forEach(g => {
         renderItems.push({ type: 'orGroup', key: g.key, members: orGroups[g.key], firstIndex: g.firstIndex });
     });
     andConstraints.forEach(({ c, originalIndex }) => {
         renderItems.push({ type: 'and', c, firstIndex: originalIndex });
     });
-    
+
     // Trier par première apparition dans le tableau original
     renderItems.sort((a, b) => a.firstIndex - b.firstIndex);
-    
+
     let html = '';
-    
+
     renderItems.forEach(item => {
         if (item.type === 'and') {
             const c = item.c;
@@ -1103,14 +1353,14 @@ function renderConstraints() {
             const label = positionLabel(members[0]);
             const editFn = members[0].type === 'line' ? 'editLineConstraint' : 'editHandConstraint';
             const orVariantFn = members[0].type === 'line' ? 'addOrVariantLine' : 'addOrVariantHand';
-            
+
             html += `
                 <div style="border: 2px solid #e67e22; border-radius: 10px; padding: 12px; margin-bottom: 10px; background: rgba(230,126,34,0.07);">
                     <div style="font-size: 13px; font-weight: bold; color: #e67e22; margin-bottom: 10px; letter-spacing: 0.5px;">
                         🔀 Groupe alternatif — ${label} (${total} variante${total > 1 ? 's' : ''})
                     </div>
             `;
-            
+
             members.forEach((c, idx) => {
                 html += `
                     <div class="constraint-item" style="border: 1px dashed #e67e22; margin-bottom: ${idx < total - 1 ? '0' : '0'};">
@@ -1132,11 +1382,49 @@ function renderConstraints() {
                     ${idx < total - 1 ? `<div style="text-align: center; font-weight: bold; color: #e67e22; padding: 4px 0;">— OU —</div>` : ''}
                 `;
             });
-            
+
             html += `</div>`;
         }
     });
-    
+
+    return html;
+}
+
+// Affiche la liste de contraintes, groupée par scénario (constraintGroups). Chaque scénario est
+// TOUJOURS entouré d'un cadre avec son propre en-tête (numéro + opérateur ET/OU par rapport aux
+// scénarios précédents) — y compris s'il n'y en a qu'un seul, pour que le regroupement des
+// contraintes qui se sauvegardent/s'éditent ensemble (ex. N+S créées dans la même session) soit
+// visible d'un coup d'œil plutôt que de se révéler seulement au moment de cliquer "Modifier".
+function renderConstraints() {
+    const list = document.getElementById('constraintList');
+    renderConstraintGroupTabs();
+
+    if (constraints.length === 0 && constraintGroups.length <= 1) {
+        list.innerHTML = '<div style="color: #7f8c8d; font-style: italic;">Aucune contrainte définie</div>';
+        buildConstraintSummary();
+        return;
+    }
+
+    const dgid = defaultGroupId();
+    let html = '';
+
+    constraintGroups.forEach((group, idx) => {
+        const groupItems = constraints.filter(c => (c.groupId || dgid) === group.id);
+
+        const opLabel = idx === 0 ? '' : `<span class="constraint-block-op constraint-block-op-${group.operator.toLowerCase()}">${group.operator === 'OR' ? 'OU' : 'ET'}</span>`;
+        html += `
+            <div class="constraint-block ${group.id === activeGroupId ? 'active' : ''}">
+                <div class="constraint-block-header">
+                    ${opLabel}
+                    <span>Scénario ${idx + 1}</span>
+                </div>
+                ${groupItems.length > 0
+                    ? buildConstraintItemsHTML(groupItems)
+                    : `<div style="color:#7f8c8d; font-style:italic; padding: 4px 0;">Scénario vide — cliquez dessus dans les onglets ci-dessus puis utilisez les boutons "+ Contraintes..." pour le remplir.</div>`}
+            </div>
+        `;
+    });
+
     list.innerHTML = html;
     buildConstraintSummary();
 }
@@ -1201,7 +1489,7 @@ const DISTRIBUTION_PRESET_GROUPS = [
 
 // Note affichée dans la modal pour rappeler que d'autres combinaisons précises
 // (couleur majeure/mineure spécifiée) restent saisissables à la main, hors presets.
-const DISTRIBUTION_PRESET_LEGEND = "D'autres combinaisons sont possibles en saisie manuelle : M5m4, M5m5, M6m4, M4m6, M6+, m7, etc.";
+const DISTRIBUTION_PRESET_LEGEND = "D'autres combinaisons sont possibles en saisie manuelle : M5m4, M5m5, M6m4, M4m6, M6+, m7, M5x5, etc.";
 
 // Champs de distribution sur lesquels attacher le bouton presets
 const DISTRIBUTION_PRESET_FIELDS = [

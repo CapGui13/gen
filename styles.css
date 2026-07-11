@@ -301,6 +301,204 @@ body.dark-mode .constraint-details {
     color: #b0b0b0;
 }
 
+/* ===== Blocs de contraintes (scénarios alternatifs) ===== */
+
+#constraintGroupTabs {
+    margin-bottom: 12px;
+}
+
+.constraint-group-tabs-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.constraint-group-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 2px solid #ddd;
+    background: #f8f9fa;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2c3e50;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, color 0.3s;
+}
+
+.constraint-group-chip:hover {
+    border-color: #3498db;
+}
+
+.constraint-group-chip.active {
+    border-color: #3498db;
+    background: rgba(52, 152, 219, 0.12);
+}
+
+body.dark-mode .constraint-group-chip {
+    background: #16213e;
+    border-color: #533483;
+    color: #e0e0e0;
+}
+
+body.dark-mode .constraint-group-chip.active {
+    border-color: #3498db;
+    background: rgba(52, 152, 219, 0.2);
+}
+
+/* Switch ET/OU à deux options visibles (plus explicite qu'une pastille à un seul état qu'il
+   fallait deviner cliquable) */
+.group-op-switch {
+    display: inline-flex;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #ccc;
+}
+
+.group-op-option {
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #7f8c8d;
+    background: #fff;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.group-op-option.selected:first-child {
+    background: #3498db;
+    color: #fff;
+}
+
+.group-op-option.selected:last-child {
+    background: #e67e22;
+    color: #fff;
+}
+
+body.dark-mode .group-op-switch {
+    border-color: #533483;
+}
+
+body.dark-mode .group-op-option {
+    background: #16213e;
+    color: #95a5a6;
+}
+
+.group-move-pair {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.group-move {
+    color: #7f8c8d;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 3px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.group-move:hover {
+    color: #3498db;
+    background: rgba(52, 152, 219, 0.12);
+}
+
+.group-delete {
+    color: #e74c3c;
+    font-weight: bold;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+
+.group-delete:hover {
+    color: #c0392b;
+}
+
+.constraint-group-add {
+    padding: 6px 14px;
+    font-size: 13px;
+    margin: 0;
+}
+
+.constraint-group-hint {
+    font-size: 12px;
+    color: #7f8c8d;
+    font-style: italic;
+    margin-top: 6px;
+}
+
+body.dark-mode .constraint-group-hint {
+    color: #95a5a6;
+}
+
+/* Cadre englobant d'un scénario : une simple barre d'accent à gauche plutôt qu'un encadré
+   complet en pointillés, pour ne pas créer un double-cadrage visuel avec les groupes de
+   variantes OU (bordure orange) qui peuvent apparaître à l'intérieur d'un scénario. */
+.constraint-block {
+    border-left: 4px solid #bbb;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    transition: border-color 0.3s, background 0.3s;
+}
+
+.constraint-block.active {
+    border-left-color: #3498db;
+    background: rgba(52, 152, 219, 0.14);
+}
+
+body.dark-mode .constraint-block {
+    border-left-color: #533483;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+body.dark-mode .constraint-block.active {
+    border-left-color: #3498db;
+    background: rgba(52, 152, 219, 0.22);
+}
+
+.constraint-block-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #2c3e50;
+    margin-bottom: 10px;
+    opacity: 0.85;
+}
+
+body.dark-mode .constraint-block-header {
+    color: #e0e0e0;
+}
+
+.constraint-block-op {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: #fff;
+    text-transform: none;
+}
+
+.constraint-block-op-and {
+    background: #3498db;
+}
+
+.constraint-block-op-or {
+    background: #e67e22;
+}
+
 /* Grids */
 .grid-2 {
     display: grid;

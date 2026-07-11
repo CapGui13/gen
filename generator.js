@@ -61,6 +61,29 @@ function formatCardsForDisplay(cards) {
 
 // Variables globales
 let constraints = [];
+
+// ===== SCÉNARIOS ALTERNATIFS (blocs de contraintes) =====
+//
+// Chaque contrainte appartient à un "bloc" (constraintGroups[]). Toutes les contraintes d'un
+// même bloc restent liées par ET entre elles (comme avant), mais les blocs eux-mêmes peuvent
+// être combinés entre eux par ET ou par OU — ce qui permet d'exprimer des scénarios entiers
+// alternatifs, ex. "(ouvreur 15-17 balancé ET répondant 8-10 4+M) OU (ouvreur 20-21 ET
+// répondant 0-7)", impossible avec un simple panier plat de contraintes.
+//
+// Le premier bloc (constraintGroups[0]) n'a pas d'opérateur affiché : c'est le bloc "de base",
+// toujours requis (ET implicite). Les blocs suivants ont leur propre opérateur ET/OU, réglable
+// via les onglets (toggleGroupOperator). activeGroupId indique dans quel bloc les prochaines
+// contraintes créées depuis les modales (main/ligne/séquence) atterrissent.
+//
+// Compatibilité : les anciens presets exportés en simple tableau plat de contraintes (sans
+// groupId) sont traités comme s'ils appartenaient tous au bloc par défaut — comportement
+// identique à avant l'introduction des blocs.
+let constraintGroups = [{ id: 'g0', operator: 'AND' }];
+let activeGroupId = 'g0';
+
+function defaultGroupId() {
+    return (constraintGroups[0] && constraintGroups[0].id) || 'g0';
+}
 let generatedDeals = [];
 let currentTheme = 'light';
 let cardNotation = 'EN'; // 'EN' (A K Q J T) ou 'FR' (A R D V X)
@@ -269,19 +292,39 @@ const MINOR_SUITS = ['DIAMONDS', 'CLUBS'];
 // - "M44", "M54", "M54+", "M55", "M55+", "M65", "M65+", "M66" (et équivalents en "m")
 //   => les deux majeures (ou mineures) prises ensemble, triées décroissant, correspondent
 //   exactement à ce couple de longueurs, ou au moins à ce couple ("+")
-// - "M5m4", "M5m5", "M6m5", "M5m6", "M6m6" => une majeure a cette longueur ET une mineure
-//   a cette longueur, indépendamment l'une de l'autre
+// - "M5m4", "M5m5", "M6m5", "M5m6", "M6m6" (et l'ordre inverse équivalent "m4M5", "m5M5",
+//   "m5M6", "m6M5", "m6M6") => une majeure a cette longueur ET une mineure a cette longueur,
+//   indépendamment l'une de l'autre
+// - "M5x4", "M5x5", "M6x4", "M6x5" => une majeure a cette longueur ET une AUTRE couleur
+//   quelconque (l'autre majeure ou une mineure) a cette seconde longueur, indépendamment
+//   l'une de l'autre
 // Renvoie true/false si le token est de ce format, ou null si ce n'en est pas un.
 function checkSuitGroupToken(token, hand) {
     const majorLengths = MAJOR_SUITS.map(s => hand[s].length);
     const minorLengths = MINOR_SUITS.map(s => hand[s].length);
 
-    // Croisement majeure/mineure : M5m4, M6m5, M5m6, M6m6, ...
-    let m = token.match(/^M(\d)m(\d)$/);
+    // Croisement majeure/mineure : M5m4, M6m5, M5m6, M6m6, ... (ou l'ordre inverse : m4M5, ...)
+    let m = token.match(/^M(\d)m(\d)$/) || token.match(/^m(\d)M(\d)$/);
+    if (m) {
+        // Selon l'ordre saisi, le premier groupe capturé est soit la longueur de la majeure
+        // (forme "M#m#"), soit celle de la mineure (forme "m#M#") : on distingue via le
+        // caractère de tête du token plutôt que de dupliquer la logique pour chaque ordre.
+        const majorLen = parseInt(token[0] === 'M' ? m[1] : m[2], 10);
+        const minorLen = parseInt(token[0] === 'M' ? m[2] : m[1], 10);
+        return majorLengths.includes(majorLen) && minorLengths.includes(minorLen);
+    }
+
+    // Majeure + n'importe quelle autre couleur (l'autre majeure OU une mineure) : M5x4, M5x5,
+    // M6x4, M6x5, ... Une majeure a exactement la première longueur, et une AUTRE couleur de
+    // la main (différente de celle qui porte la majeure) a exactement la seconde longueur.
+    m = token.match(/^M(\d)x(\d)$/);
     if (m) {
         const majorLen = parseInt(m[1], 10);
-        const minorLen = parseInt(m[2], 10);
-        return majorLengths.includes(majorLen) && minorLengths.includes(minorLen);
+        const otherLen = parseInt(m[2], 10);
+        return MAJOR_SUITS.some(majorSuit => {
+            if (hand[majorSuit].length !== majorLen) return false;
+            return SUITS.some(otherSuit => otherSuit !== majorSuit && hand[otherSuit].length === otherLen);
+        });
     }
 
     // Deux couleurs de la même famille : M44, M54, M54+, M55, M55+, M65, M65+, M66
@@ -327,6 +370,8 @@ function validateDistributionString(distributionStr) {
         const isWholeHandThreshold = /^\d\+$/.test(token) || /^\d{2}\+$/.test(token);
         const isWholeHandExact = /^\d$/.test(token);
         const isSuitGroupToken = /^M\dm\d$/.test(token)
+            || /^m\dM\d$/.test(token)
+            || /^M\dx\d$/.test(token)
             || /^[Mm]\d{2}\+?$/.test(token)
             || /^[Mm]\d\+?$/.test(token);
 
@@ -628,16 +673,74 @@ function checkConstraint(deal, constraint) {
     return true;
 }
 
+// Évalue un seul bloc : toutes ses contraintes "AND" doivent passer, ET pour chaque groupe de
+// variantes "OU" (même position ou même ligne, via addOrVariantHand/Line) au moins une variante
+// doit passer. Un bloc vide (0 contrainte) ne restreint rien (return true) : ça permet de créer
+// un bloc à l'avance et de le remplir ensuite sans casser la génération entre-temps.
+//
+// Le groupement par clé (position/ligne) corrige un bug historique : avant les blocs, toutes les
+// variantes OU de TOUTES les positions finissaient mélangées dans un seul panier global testé en
+// "au moins une passe" — un OU sur N suffisait à valider la donne même sans que le OU sur S soit
+// satisfait. Ici, le OU de N et le OU de S sont chacun leur propre exigence, toutes deux requises.
+function checkGroupConstraints(deal, groupConstraints) {
+    if (groupConstraints.length === 0) return true;
+
+    const andItems = groupConstraints.filter(c => c.operator !== 'OR');
+    const orItems = groupConstraints.filter(c => c.operator === 'OR');
+
+    if (!andItems.every(c => checkConstraint(deal, c))) return false;
+
+    if (orItems.length > 0) {
+        const byKey = {};
+        for (const c of orItems) {
+            const key = c.type === 'line' ? `line:${c.line}` : `hand:${c.position}`;
+            (byKey[key] = byKey[key] || []).push(c);
+        }
+        for (const key in byKey) {
+            if (!byKey[key].some(c => checkConstraint(deal, c))) return false;
+        }
+    }
+
+    return true;
+}
+
+// Combine tous les blocs en chaîne, de gauche à droite, comme "A ET B OU C" se lit
+// naturellement : resultat = bloc[0] ; puis pour chaque bloc suivant, on l'AND ou l'OR avec
+// le résultat courant selon SON PROPRE opérateur. Ça permet d'exprimer aussi bien :
+//  - une base commune + une alternative : (baseline) ET (scénario A OU scénario B)... en
+//    mettant "baseline" dans le bloc 0 et en marquant le bloc suivant "ET" avant l'alternative ;
+//  - un pur choix entre scénarios sans aucune base commune : bloc 0 = scénario A, bloc 1 = OU
+//    scénario B — exactement le cas d'usage demandé ("(ouvreur 15-17 ET répondant 8-10) OU
+//    (ouvreur 20-21 ET répondant 0-7)").
+// (Pas de parenthésage arbitraire : au-delà de 2-3 blocs, l'évaluation reste strictement
+// séquentielle gauche→droite, comme une calculatrice basique — suffisant pour l'usage visé,
+// une vraie arborescence de groupes imbriqués serait disproportionnée ici.)
 function checkAllConstraints(deal) {
     if (constraints.length === 0) return true;
-    
-    const andConstraints = constraints.filter(c => c.operator === 'AND');
-    const orConstraints = constraints.filter(c => c.operator === 'OR');
-    
-    const andResult = andConstraints.length === 0 || andConstraints.every(c => checkConstraint(deal, c));
-    const orResult = orConstraints.length === 0 || orConstraints.some(c => checkConstraint(deal, c));
-    
-    return andResult && orResult;
+
+    const dgid = defaultGroupId();
+    const groups = constraintGroups.length > 0 ? constraintGroups : [{ id: dgid, operator: 'AND' }];
+
+    function constraintsOfGroup(groupId) {
+        return constraints.filter(c => (c.groupId || dgid) === groupId);
+    }
+
+    // Un scénario vide (créé via "+ Scénario alternatif" mais jamais rempli) ne doit compter
+    // ni pour ni contre : on le retire complètement de la chaîne d'évaluation plutôt que de le
+    // traiter comme "toujours vrai". Sans ça, un OU avec un scénario vide validerait n'importe
+    // quelle donne et neutraliserait silencieusement les contraintes des autres scénarios.
+    const nonEmptyGroups = groups
+        .map(g => ({ group: g, items: constraintsOfGroup(g.id) }))
+        .filter(({ items }) => items.length > 0);
+
+    if (nonEmptyGroups.length === 0) return true;
+
+    let result = checkGroupConstraints(deal, nonEmptyGroups[0].items);
+    for (let i = 1; i < nonEmptyGroups.length; i++) {
+        const groupResult = checkGroupConstraints(deal, nonEmptyGroups[i].items);
+        result = (nonEmptyGroups[i].group.operator === 'OR') ? (result || groupResult) : (result && groupResult);
+    }
+    return result;
 }
 
 // ===== GÉNÉRATION PRINCIPALE =====
@@ -917,7 +1020,24 @@ function buildPBNBlock(deal, boardNumber) {
     pbn += `[Board "${boardNumber}"]\n`;
     pbn += `[Dealer "${dealer}"]\n`;
     pbn += `[Vulnerable "${vulnerable}"]\n`;
-    pbn += `[Deal "N:${hands}"]\n\n`;
+    pbn += `[Deal "N:${hands}"]\n`;
+
+    // Si le double mort a déjà été calculé pour cette donne, on inclut la table complète
+    // au format PBN standard (tag [OptimumResultTable]), pour que d'autres logiciels
+    // (dont la table d'enchères) puissent l'afficher sans avoir à la recalculer eux-mêmes.
+    if (deal._ddTable) {
+        pbn += `[OptimumResultTable "Declarer;Denomination\\2R;Result\\2R"]\n`;
+        const declarerOrder = ['N', 'E', 'S', 'W'];
+        const denomForStrain = { N: 'NT', S: 'S', H: 'H', D: 'D', C: 'C' };
+        declarerOrder.forEach(declarer => {
+            ['N', 'S', 'H', 'D', 'C'].forEach(strain => {
+                const tricks = deal._ddTable[strain][declarer];
+                pbn += `${declarer} ${denomForStrain[strain]} ${tricks}\n`;
+            });
+        });
+    }
+
+    pbn += `\n`;
     return pbn;
 }
 
