@@ -433,7 +433,7 @@ function notifyDDFallback(reason) {
 // Renseigne cette URL une fois ta fonction Vercel déployée, ex :
 //   'https://ton-projet.vercel.app/api/dds'
 // Laisse vide ('') pour désactiver et repasser directement en local (comportement d'origine).
-const DD_SERVER_URL = '';
+const DD_SERVER_URL = 'https://api-gen-beta.vercel.app/api/dds';
 
 const DD_SERVER_CHUNK_SIZE = 10;    // donnes par requête HTTP
 const DD_SERVER_MAX_CONCURRENT = 4; // requêtes HTTP simultanées
