@@ -275,9 +275,25 @@ let ddBatchActive = false;
 // Taille maximale du pool : un worker par cœur logique disponible, plafonné à 8.
 // La taille réelle grandit progressivement selon le travail en attente (voir dispatch),
 // pour ne pas payer le coût de démarrage de 8 workers quand une seule donne est demandée.
+//
+// Chaque worker charge sa propre copie de dds-lib.js, qui réserve ~256 Mo de heap WASM
+// dès son chargement (TOTAL_MEMORY fixe, pas de ALLOW_MEMORY_GROWTH). Sur PC ça ne pose
+// aucun souci, mais sur mobile (limite mémoire d'onglet souvent < 1,5-2 Go sur iOS Safari
+// notamment) un pool de 6-8 workers peut à lui seul dépasser 2 Go et faire tuer l'onglet
+// par l'OS, ce qui se manifeste par un rechargement brutal de la page. On plafonne donc
+// beaucoup plus bas sur mobile.
+function isMobileDevice() {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    // navigator.platform === 'MacIntel' + maxTouchPoints > 1 : iPad en mode "desktop" (iPadOS)
+    const iPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || iPadOS;
+}
+
 function getMaxPoolSize() {
     const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 4;
-    return Math.max(1, Math.min(cores, 8));
+    const cap = isMobileDevice() ? 2 : 8;
+    return Math.max(1, Math.min(cores, cap));
 }
 
 function ensureWorkerPool(size) {
