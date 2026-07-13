@@ -292,7 +292,7 @@ function isMobileDevice() {
 
 function getMaxPoolSize() {
     const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 4;
-    const cap = isMobileDevice() ? 4 : 8;
+    const cap = isMobileDevice() ? 2 : 8;
     return Math.max(1, Math.min(cores, cap));
 }
 
