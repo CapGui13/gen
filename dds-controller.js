@@ -1,14 +1,23 @@
 // dds-controller.js - Orchestration du calcul du double mort pour les donnes générées
 //
 // ===== ARCHITECTURE GÉNÉRALE =====
-// Double mort = pour chaque case (couleur × déclarant), nombre de levées réalisables. Ce fichier
-// orchestre le calcul en parallèle via Web Workers (dds-worker.js, qui load la compilation
-// Emscripten de libdds de Bo Haglund). Fallback mono-thread si file:// ou Web Workers indisponibles.
+// Double mort = pour chaque case (couleur × déclarant), nombre de levées réalisables.
 //
-// ===== POOL DE WORKERS =====
+// Deux chemins de calcul, dans cet ordre de priorité :
+//  1) SERVEUR (dispatchServer) : envoie les donnes par lots à une fonction serverless
+//     (Vercel) qui exécute la même compilation Emscripten côté Node, sans les
+//     contraintes mémoire du mobile. Prioritaire si DD_SERVER_URL est renseigné.
+//  2) LOCAL (Web Workers, ou repli fil principal si indisponibles) : identique à
+//     l'architecture d'origine, utilisée automatiquement si le serveur est injoignable
+//     (hors-ligne, panne, DD_SERVER_URL vide) — utile notamment pour un usage au club
+//     sans connexion fiable.
+// Une fois le serveur en échec pour la session, on n'y retente plus (comme pour
+// ddWorkerPoolFailed) : tout repasse en local pour le reste de la session.
+//
+// ===== POOL DE WORKERS (chemin local) =====
 // - ddWorkerPool[] : liste de Workers actifs (croissance à la demande, plafonné à 8 ou nb cores)
 // - ddWorkerBusy[] : booléens, suivi qui travaille
-// - ddQueue[] : file partagée de {"id", "pbn"} à traiter
+// - ddQueue[] : file partagée de {"id", "pbn"} à traiter (commune aux deux chemins)
 // - ddInFlight (Set) : IDs actuellement en attente ou en cours (anti-doublon)
 // Quand un worker fini, il repioche automatiquement dans la queue (dispatch()).
 //
@@ -16,6 +25,8 @@
 // Résultat d'un calcul : stocké dans generatedDeals[id]._ddTable = table (objet structuré).
 // Table format : { strain: { pos: tricks } } où strain ∈ {N,S,H,D,C} et pos ∈ {N,S,E,W}.
 // Affiché via buildDDTableHTML(table, dealIdx), qui met en évidence le meilleur contrat.
+// applyResult(id, table, errorMessage) est le point d'entrée UNIQUE quelle que soit la
+// provenance du résultat (serveur, worker, ou fil principal).
 //
 // ===== MISE EN ÉVIDENCE (color-coding du meilleur contrat) =====
 // Calcul par CAMP (NS vs EW indépendamment) et par PALIER (chelem > manche > partielle).
@@ -35,7 +46,7 @@
 // - Mode "ajout" (append=true dans renderDeals) : ne réinitialise PAS → calculs en vol
 //   pour l'ancienne génération restent valables, nouvelles donnes débutent leur propre cycle.
 //
-// ===== FALLBACK MONO-THREAD =====
+// ===== FALLBACK MONO-THREAD (dernier recours, si serveur ET Workers indisponibles) =====
 // Si Web Workers échouent (file://), calcul sur le fil principal en chunks via requestIdleCallback.
 // Banneau d'avertissement et logs en console. Raison : Web Workers ne chargent pas les scripts
 // via file:// (sécurité navigateur). Solution : lancer via serveur local (python3 -m http.server).
@@ -43,6 +54,7 @@
 // ===== DÉPENDANCES =====
 // - dds-worker.js : Web Worker chargeant dds-lib.js et exécutant generateDDTable(pbn)
 // - dds-lib.js : Compilation Emscripten de libdds (Bo Haglund)
+// - api/dds.js : même calcul, côté serveur (fonction Vercel), voir DD_SERVER_URL ci-dessous
 // - generator.js : generatedDeals[], getDealerAndVulnerability(), buildDDTableHTML()
 
 const STRAIN_ORDER = ['N', 'S', 'H', 'D', 'C'];
@@ -416,7 +428,56 @@ function notifyDDFallback(reason) {
     if (actions) actions.parentNode.insertBefore(banner, actions.nextSibling);
 }
 
-// ===== File d'attente partagée =====
+// ===== Calcul via serveur (chemin prioritaire) =====
+//
+// Renseigne cette URL une fois ta fonction Vercel déployée, ex :
+//   'https://ton-projet.vercel.app/api/dds'
+// Laisse vide ('') pour désactiver et repasser directement en local (comportement d'origine).
+const DD_SERVER_URL = '';
+
+const DD_SERVER_CHUNK_SIZE = 10;    // donnes par requête HTTP
+const DD_SERVER_MAX_CONCURRENT = 4; // requêtes HTTP simultanées
+let ddServerFailed = false;
+let ddServerInFlight = 0;
+
+function dispatchServer() {
+    while (ddServerInFlight < DD_SERVER_MAX_CONCURRENT && ddQueue.length > 0) {
+        const chunk = ddQueue.splice(0, DD_SERVER_CHUNK_SIZE);
+        ddServerInFlight++;
+        sendServerChunk(chunk);
+    }
+}
+
+async function sendServerChunk(chunk) {
+    try {
+        const response = await fetch(DD_SERVER_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: chunk.map(c => ({ id: c.id, pbn: c.pbn })) })
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        for (const r of data.results) {
+            applyResult(r.id, r.table || null, r.error || null);
+        }
+    } catch (err) {
+        // Serveur injoignable (hors-ligne, panne, mauvaise URL...) : on abandonne le
+        // chemin serveur pour le reste de la session et on repasse ce lot (et tout le
+        // reste de la file) au calcul local (Workers ou fil principal).
+        console.warn(
+            `[double mort] Serveur de calcul injoignable (${err && err.message ? err.message : err}) — ` +
+            `repli sur le calcul local.`
+        );
+        ddServerFailed = true;
+        notifyDDFallback('serveur de calcul injoignable : ' + (err && err.message ? err.message : String(err)));
+        ddQueue.unshift(...chunk);
+    } finally {
+        ddServerInFlight--;
+        dispatch(); // relance : vers le serveur si un slot se libère, sinon vers le repli local
+    }
+}
+
+// ===== File d'attente partagée (répartition serveur / local) =====
 
 // Ajoute des donnes à la file et lance/poursuit leur traitement.
 // trackBatch : si vrai, ces donnes comptent dans la barre de progression globale.
@@ -441,6 +502,11 @@ function enqueueDDItems(items, trackBatch) {
 
 function dispatch() {
     if (ddQueue.length === 0) return;
+
+    if (DD_SERVER_URL && !ddServerFailed) {
+        dispatchServer();
+        return;
+    }
 
     if (ddWorkerPoolFailed) {
         dispatchMainThread();
