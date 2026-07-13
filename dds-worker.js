@@ -13,6 +13,14 @@
 
 var Module = {};
 
+// La lib réserve Module.TOTAL_MEMORY (256 Mo par défaut) en un bloc dès son chargement.
+// DDS n'a pas besoin d'autant : on redescend à 64 Mo pour permettre plusieurs workers
+// en parallèle sur mobile sans dépasser la limite mémoire de l'onglet. Si des erreurs
+// "Cannot enlarge memory arrays" apparaissent sur certaines donnes, remonter cette
+// valeur (par paliers de 16 Mo) et réduire en contrepartie le cap mobile du pool
+// dans dds-controller.js pour garder un budget total raisonnable (~250-400 Mo).
+Module.TOTAL_MEMORY = 67108864; // 64 Mo
+
 try {
     importScripts('dds-lib.js');
 } catch (err) {
