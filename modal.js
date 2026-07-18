@@ -458,6 +458,19 @@ function saveHandConstraints() {
     pendingEditBackup = null;
 }
 
+// Quand "Pas de fit majeur" est coché, les champs de fit manuels à Pique/Cœur
+// n'ont plus de sens (la contrainte impose déjà max 7 cartes dans chacune) :
+// on les vide et on les désactive pour éviter toute contradiction.
+function toggleNoMajorFit(line) {
+    const checked = document.getElementById(`line-${line}-no-major-fit`).checked;
+    const spadesInput = document.getElementById(`line-${line}-spades-fit`);
+    const heartsInput = document.getElementById(`line-${line}-hearts-fit`);
+    [spadesInput, heartsInput].forEach(input => {
+        input.disabled = checked;
+        if (checked) input.value = '';
+    });
+}
+
 function saveLineConstraints() {
     const allLines = ['ns', 'ew'];
     const lineNames = { 'ns': 'NS', 'ew': 'EW' };
@@ -472,8 +485,10 @@ function saveLineConstraints() {
         const heartsFit = document.getElementById(`line-${line}-hearts-fit`).value;
         const diamondsFit = document.getElementById(`line-${line}-diamonds-fit`).value;
         const clubsFit = document.getElementById(`line-${line}-clubs-fit`).value;
+        const anyFit = document.getElementById(`line-${line}-any-fit`).value;
+        const noMajorFit = document.getElementById(`line-${line}-no-major-fit`).checked;
         
-        if (hcp || spadesFit || heartsFit || diamondsFit || clubsFit) {
+        if (hcp || spadesFit || heartsFit || diamondsFit || clubsFit || anyFit || noMajorFit) {
             const constraint = {
                 id: Date.now() + Math.random(),
                 type: 'line',
@@ -486,8 +501,10 @@ function saveLineConstraints() {
                     SPADES: parseConstraintValue(spadesFit),
                     HEARTS: parseConstraintValue(heartsFit),
                     DIAMONDS: parseConstraintValue(diamondsFit),
-                    CLUBS: parseConstraintValue(clubsFit)
-                }
+                    CLUBS: parseConstraintValue(clubsFit),
+                    ANY: parseConstraintValue(anyFit)
+                },
+                noMajorFit: noMajorFit
             };
             constraints.push(constraint);
         } else if (isAddingOrVariant) {
@@ -505,6 +522,9 @@ function saveLineConstraints() {
         document.getElementById(`line-${line}-hearts-fit`).value = '';
         document.getElementById(`line-${line}-diamonds-fit`).value = '';
         document.getElementById(`line-${line}-clubs-fit`).value = '';
+        document.getElementById(`line-${line}-any-fit`).value = '';
+        document.getElementById(`line-${line}-no-major-fit`).checked = false;
+        toggleNoMajorFit(line);
         const hcpRadio = document.querySelector(`input[name="line-${line}-pointType"][value="hcp"]`);
         if (hcpRadio) hcpRadio.checked = true;
     }
@@ -888,13 +908,7 @@ function exportConstraintsPreset() {
     
     const payload = { constraints, constraintGroups };
     const json = JSON.stringify(payload, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'presets-bridge.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(json, 'application/json', 'presets-bridge.json');
 }
 
 // Importe un fichier JSON de contraintes, en remplaçant les contraintes actuelles (avec confirmation)
@@ -1058,6 +1072,9 @@ function editLineConstraint(id) {
         document.getElementById(`line-${line}-hearts-fit`).value = '';
         document.getElementById(`line-${line}-diamonds-fit`).value = '';
         document.getElementById(`line-${line}-clubs-fit`).value = '';
+        document.getElementById(`line-${line}-any-fit`).value = '';
+        document.getElementById(`line-${line}-no-major-fit`).checked = false;
+        toggleNoMajorFit(line);
         const hcpRadio = document.querySelector(`input[name="line-${line}-pointType"][value="hcp"]`);
         if (hcpRadio) hcpRadio.checked = true;
     });
@@ -1069,6 +1086,9 @@ function editLineConstraint(id) {
         document.getElementById(`line-${line}-hearts-fit`).value = rangeToInputText(sc.fits.HEARTS, 13);
         document.getElementById(`line-${line}-diamonds-fit`).value = rangeToInputText(sc.fits.DIAMONDS, 13);
         document.getElementById(`line-${line}-clubs-fit`).value = rangeToInputText(sc.fits.CLUBS, 13);
+        document.getElementById(`line-${line}-any-fit`).value = sc.fits.ANY ? rangeToInputText(sc.fits.ANY, 13) : '';
+        document.getElementById(`line-${line}-no-major-fit`).checked = !!sc.noMajorFit;
+        toggleNoMajorFit(line);
 
         const pointTypeRadio = document.querySelector(`input[name="line-${line}-pointType"][value="${sc.pointType}"]`);
         if (pointTypeRadio) pointTypeRadio.checked = true;
@@ -1123,13 +1143,17 @@ function getConstraintText(c) {
         if (c.fits) {
             const fitParts = [];
             for (const [suit, range] of Object.entries(c.fits)) {
-                if (isRangeActive(range, 13)) {
-                    fitParts.push(`${SUIT_SYMBOLS[suit]} fit ${formatRangeValue(range, 13)}`);
-                }
+                if (!isRangeActive(range, 13)) continue;
+                const label = suit === 'ANY' ? '🌈 (n\'importe quelle couleur)' : SUIT_SYMBOLS[suit];
+                fitParts.push(`${label} fit ${formatRangeValue(range, 13)}`);
             }
             if (fitParts.length > 0) {
                 parts.push(fitParts.join(', '));
             }
+        }
+        
+        if (c.noMajorFit) {
+            parts.push('Pas de fit majeur (♠/♥ ≤ 7)');
         }
         
         return parts.join(' • ');

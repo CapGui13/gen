@@ -593,6 +593,18 @@ function checkConstraint(deal, constraint) {
         
         if (constraint.fits) {
             for (const [suit, range] of Object.entries(constraint.fits)) {
+                if (suit === 'ANY') {
+                    // Fit dans n'importe quelle couleur : au moins une des 4 couleurs doit
+                    // tomber dans la plage demandée (combinée sur les deux mains de la ligne).
+                    if (range.ranges || range.min > 0 || range.max < 13) {
+                        const anySuitMatches = SUITS.some(s => {
+                            const totalCards = positions.reduce((sum, pos) => sum + deal[pos][s].length, 0);
+                            return checkPointsInRange(totalCards, range);
+                        });
+                        if (!anySuitMatches) return false;
+                    }
+                    continue;
+                }
                 if (range.ranges || range.min > 0 || range.max < 26) {
                     const totalCards = positions.reduce((sum, pos) => sum + deal[pos][suit].length, 0);
                     if (!checkPointsInRange(totalCards, range)) {
@@ -600,6 +612,14 @@ function checkConstraint(deal, constraint) {
                     }
                 }
             }
+        }
+        
+        if (constraint.noMajorFit) {
+            // "Pas de fit majeur" : ni Pique ni Cœur ne doivent dépasser 7 cartes combinées
+            // dans la ligne (au-delà, on considère qu'il y a un fit majeur).
+            const spadesTotal = positions.reduce((sum, pos) => sum + deal[pos].SPADES.length, 0);
+            const heartsTotal = positions.reduce((sum, pos) => sum + deal[pos].HEARTS.length, 0);
+            if (spadesTotal > 7 || heartsTotal > 7) return false;
         }
         
         return true;
@@ -968,6 +988,7 @@ function renderDeals(append = false) {
                                 <button type="button" onclick="downloadDealAsLIN(${idx}); closeAllDealDownloadMenus();">LIN</button>
                             </div>
                         </div>
+                        <button type="button" class="deal-delete-btn" title="Supprimer cette donne" onclick="deleteDeal(${idx})">🗑</button>
                     </div>
                 </div>
                 <div class="deal-visual">
@@ -998,7 +1019,48 @@ function renderDeals(append = false) {
     applyDealFilter();
 }
 
-// ===== EXPORT PBN =====
+// Supprime une seule donne générée (bouton 🗑 sur la carte) en gardant toutes les autres.
+// Les donnes étant numérotées et affichées uniquement selon leur position dans
+// generatedDeals[] (boardNumber = idx + 1, dealer/vulnérabilité recalculés à partir de ce
+// numéro), les donnes situées après celle supprimée se décalent naturellement d'un cran et
+// reprennent le donneur/la vulnérabilité correspondant à leur nouvelle position — comme
+// lorsqu'on ajoute des donnes en mode "ajout". Chaque donne conserve son éventuelle table de
+// double mort déjà calculée (_ddTable stocké sur l'objet donne lui-même, indépendant de l'index).
+//
+// renderDeals(false) (append=false, valeur par défaut) appelle resetDoubleDummyForNewGeneration(),
+// ce qui invalide au passage tout calcul de double mort encore en vol : comme l'identifiant
+// utilisé pour ces calculs est l'index dans generatedDeals[], un résultat qui arriverait en
+// retard pour un ancien index se retrouverait sinon appliqué à la mauvaise donne après le
+// décalage des index consécutif à la suppression.
+function deleteDeal(idx) {
+    if (!generatedDeals || idx < 0 || idx >= generatedDeals.length) return;
+
+    if (!confirm(`Supprimer la donne #${idx + 1} ?`)) return;
+
+    generatedDeals.splice(idx, 1);
+    renderDeals(false);
+}
+
+// Réorganise les donnes générées dans un ordre aléatoire (bouton "🔀 Réorganiser au hasard"),
+// sans en ajouter ni en retirer — un simple mélange Fisher-Yates du tableau generatedDeals[].
+// Comme pour deleteDeal(), renderDeals(false) invalide au passage tout calcul de double mort
+// encore en vol via resetDoubleDummyForNewGeneration() : l'identifiant de ces calculs étant
+// l'index dans generatedDeals[], un résultat qui arriverait en retard pour un ancien index se
+// retrouverait sinon appliqué à la mauvaise donne une fois l'ordre changé. Chaque donne garde
+// sa table de double mort déjà calculée, si elle l'avait (_ddTable est stocké sur l'objet
+// donne lui-même, indépendant de sa position dans le tableau).
+function shuffleDeals() {
+    if (!generatedDeals || generatedDeals.length < 2) return;
+
+    for (let i = generatedDeals.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [generatedDeals[i], generatedDeals[j]] = [generatedDeals[j], generatedDeals[i]];
+    }
+
+    renderDeals(false);
+}
+
+
 
 // Construit le bloc PBN d'une seule donne (réutilisé pour l'export global et l'export individuel).
 function buildPBNBlock(deal, boardNumber) {
@@ -1041,7 +1103,31 @@ function buildPBNBlock(deal, boardNumber) {
     return pbn;
 }
 
-function downloadBlob(content, mimeType, filename) {
+// Demande son nom de fichier avant chaque téléchargement, préempli avec le nom par défaut.
+// Le champ du prompt() natif du navigateur affiche ce texte déjà sélectionné : l'utilisateur
+// n'a donc qu'à taper au clavier pour le remplacer entièrement, sans avoir à cliquer avant —
+// ou juste valider tel quel pour garder le nom par défaut.
+function promptForFilename(defaultFilename) {
+    const input = prompt('Nom du fichier à télécharger :', defaultFilename);
+    if (input === null) return null; // annulé : pas de téléchargement
+    const trimmed = input.trim();
+    if (trimmed === '') return defaultFilename;
+
+    // Si l'utilisateur a retapé un nom sans son extension, on réutilise celle du nom par
+    // défaut plutôt que de télécharger un fichier sans extension (qu'il faudrait renommer
+    // à la main pour l'ouvrir correctement).
+    const dotIdx = defaultFilename.lastIndexOf('.');
+    const defaultExt = dotIdx !== -1 ? defaultFilename.slice(dotIdx) : '';
+    if (defaultExt && !trimmed.toLowerCase().endsWith(defaultExt.toLowerCase())) {
+        return trimmed + defaultExt;
+    }
+    return trimmed;
+}
+
+function downloadBlob(content, mimeType, defaultFilename) {
+    const filename = promptForFilename(defaultFilename);
+    if (filename === null) return; // l'utilisateur a annulé
+
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -603,6 +603,35 @@ body.dark-mode .deal-download-btn:hover {
     background: #2a2a4a;
 }
 
+.deal-delete-btn {
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #555;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 6px;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.deal-delete-btn:hover {
+    background: #fdecea;
+    border-color: #e74c3c;
+    color: #e74c3c;
+}
+
+body.dark-mode .deal-delete-btn {
+    border-color: #533483;
+    color: #b0b0b0;
+}
+
+body.dark-mode .deal-delete-btn:hover {
+    background: #3d1f1f;
+    border-color: #e74c3c;
+    color: #ff6b6b;
+}
+
 .deal-download-menu {
     display: none;
     position: absolute;
@@ -1050,6 +1079,18 @@ body.dark-mode .position-title {
 
 .constraint-input-group {
     margin-bottom: 15px;
+}
+
+.constraint-input-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.constraint-input-row .constraint-input-group {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
 }
 
 .constraint-input-label {

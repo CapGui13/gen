@@ -125,6 +125,7 @@
                     <button class="btn btn-primary" onclick="openStatsModal()">📊 Statistiques</button>
                     <button class="btn btn-secondary" onclick="computeDoubleDummyForAllDeals()">🧮 Calculer le double mort</button>
                     <button id="ddCancelBtn" class="btn btn-danger" style="display:none;" onclick="cancelDoubleDummyBatch()">⏹ Arrêter le calcul</button>
+                    <button class="btn btn-secondary" onclick="shuffleDeals()">🔀 Réorganiser au hasard</button>
                     <button class="btn btn-download" onclick="exportToPBN()">⬇ Télécharger PBN</button>
                     <button class="btn btn-download" onclick="exportToLIN()">⬇ Télécharger LIN</button>
                 </div>
@@ -336,21 +337,35 @@
                             <div class="constraint-input-label">🎯 Points totaux</div>
                             <input type="text" class="constraint-input" id="line-ns-hcp" placeholder="Ex: 20-25, 20+, 25- OU 20-22 OU 26+">
                         </div>
-                        <div class="constraint-input-group">
-                            <div class="constraint-input-label">♠ Fit à Pique</div>
-                            <input type="text" class="constraint-input" id="line-ns-spades-fit" placeholder="Ex: 8 13, 8+">
+                        <div class="constraint-input-row">
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♠ Fit à Pique</div>
+                                <input type="text" class="constraint-input" id="line-ns-spades-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♥ Fit à Cœur</div>
+                                <input type="text" class="constraint-input" id="line-ns-hearts-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
+                        </div>
+                        <div class="constraint-input-row">
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♦ Fit à Carreau</div>
+                                <input type="text" class="constraint-input" id="line-ns-diamonds-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♣ Fit à Trèfle</div>
+                                <input type="text" class="constraint-input" id="line-ns-clubs-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
                         </div>
                         <div class="constraint-input-group">
-                            <div class="constraint-input-label">♥ Fit à Cœur</div>
-                            <input type="text" class="constraint-input" id="line-ns-hearts-fit" placeholder="Ex: 8 13, 8+">
+                            <div class="constraint-input-label">🌈 Fit dans n'importe quelle couleur</div>
+                            <input type="text" class="constraint-input" id="line-ns-any-fit" placeholder="Ex: 8 13, 8+">
                         </div>
                         <div class="constraint-input-group">
-                            <div class="constraint-input-label">♦ Fit à Carreau</div>
-                            <input type="text" class="constraint-input" id="line-ns-diamonds-fit" placeholder="Ex: 8 13, 8+">
-                        </div>
-                        <div class="constraint-input-group">
-                            <div class="constraint-input-label">♣ Fit à Trèfle</div>
-                            <input type="text" class="constraint-input" id="line-ns-clubs-fit" placeholder="Ex: 8 13, 8+">
+                            <label style="margin: 0;">
+                                <input type="checkbox" id="line-ns-no-major-fit" style="width: auto; margin-right: 6px;" onchange="toggleNoMajorFit('ns')">
+                                Pas de fit majeur (♠ et ♥ limités à 7 cartes max dans la ligne)
+                            </label>
                         </div>
                     </div>
                     
@@ -368,21 +383,35 @@
                             <div class="constraint-input-label">🎯 Points totaux</div>
                             <input type="text" class="constraint-input" id="line-ew-hcp" placeholder="Ex: 20-25, 20+, 25- OU 20-22 OU 26+">
                         </div>
-                        <div class="constraint-input-group">
-                            <div class="constraint-input-label">♠ Fit à Pique</div>
-                            <input type="text" class="constraint-input" id="line-ew-spades-fit" placeholder="Ex: 8 13, 8+">
+                        <div class="constraint-input-row">
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♠ Fit à Pique</div>
+                                <input type="text" class="constraint-input" id="line-ew-spades-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♥ Fit à Cœur</div>
+                                <input type="text" class="constraint-input" id="line-ew-hearts-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
+                        </div>
+                        <div class="constraint-input-row">
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♦ Fit à Carreau</div>
+                                <input type="text" class="constraint-input" id="line-ew-diamonds-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
+                            <div class="constraint-input-group">
+                                <div class="constraint-input-label">♣ Fit à Trèfle</div>
+                                <input type="text" class="constraint-input" id="line-ew-clubs-fit" placeholder="Ex: 8 13, 8+">
+                            </div>
                         </div>
                         <div class="constraint-input-group">
-                            <div class="constraint-input-label">♥ Fit à Cœur</div>
-                            <input type="text" class="constraint-input" id="line-ew-hearts-fit" placeholder="Ex: 8 13, 8+">
+                            <div class="constraint-input-label">🌈 Fit dans n'importe quelle couleur</div>
+                            <input type="text" class="constraint-input" id="line-ew-any-fit" placeholder="Ex: 8 13, 8+">
                         </div>
                         <div class="constraint-input-group">
-                            <div class="constraint-input-label">♦ Fit à Carreau</div>
-                            <input type="text" class="constraint-input" id="line-ew-diamonds-fit" placeholder="Ex: 8 13, 8+">
-                        </div>
-                        <div class="constraint-input-group">
-                            <div class="constraint-input-label">♣ Fit à Trèfle</div>
-                            <input type="text" class="constraint-input" id="line-ew-clubs-fit" placeholder="Ex: 8 13, 8+">
+                            <label style="margin: 0;">
+                                <input type="checkbox" id="line-ew-no-major-fit" style="width: auto; margin-right: 6px;" onchange="toggleNoMajorFit('ew')">
+                                Pas de fit majeur (♠ et ♥ limités à 7 cartes max dans la ligne)
+                            </label>
                         </div>
                     </div>
                 </div>
